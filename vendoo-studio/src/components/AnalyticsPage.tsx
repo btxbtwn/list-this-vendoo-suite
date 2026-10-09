@@ -1,21 +1,11 @@
 import { useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
-import type { AnalyticsGroup, AnalyticsRange, AnalyticsSales, AnalyticsStaleListing, InventoryAnalytics } from "../api/types";
-import { formatChange, formatDays, formatMoney } from "./analyticsFormat";
+import type { AnalyticsGroup, AnalyticsRange, AnalyticsSales, InventoryAnalytics } from "../api/types";
+import { ANALYTICS_RANGES, formatChange, formatDays, formatMoney } from "./analyticsFormat";
 import { marketplaceName } from "./marketplaceNames";
-import { AdSpend } from "./AdSpend";
 import { Stat } from "./AnalyticsStat";
-import { SaleCalendar } from "./SaleCalendar";
 import { VendooImportButton } from "./VendooImportButton";
-
-const RANGES: { id: AnalyticsRange; label: string; heading: string }[] = [
-  { id: "7d", label: "7 days", heading: "Last 7 days" },
-  { id: "30d", label: "30 days", heading: "Last 30 days" },
-  { id: "90d", label: "90 days", heading: "Last 90 days" },
-  { id: "12m", label: "12 months", heading: "Last 12 months" },
-  { id: "all", label: "All", heading: "All time" },
-];
 
 interface Props {
   onOpenListing: (id: string) => void;
@@ -29,7 +19,7 @@ export function AnalyticsPage({ onOpenListing }: Props) {
     placeholderData: keepPreviousData,
   });
   const data = query.data;
-  const heading = RANGES.find((item) => item.id === (data?.range ?? range))?.heading ?? "Sales";
+  const heading = ANALYTICS_RANGES.find((item) => item.id === (data?.range ?? range))?.heading ?? "Sales";
 
   return (
     <div className="analytics-page">
@@ -53,7 +43,7 @@ export function AnalyticsPage({ onOpenListing }: Props) {
           ) : null}
           {data ? <InventoryStrip inventory={data.inventory} /> : null}
           <div className="pr-pills" role="tablist" aria-label="Sales period">
-            {RANGES.map((item) => (
+            {ANALYTICS_RANGES.map((item) => (
               <button
                 key={item.id}
                 type="button"
@@ -182,12 +172,6 @@ export function AnalyticsPage({ onOpenListing }: Props) {
               )}
             </section>
 
-            <DiscountDeeper listings={data.stale} onOpenListing={onOpenListing} />
-
-            <SaleCalendar onOpenListing={onOpenListing} />
-
-            <AdSpend ads={data.ads} heading={heading} />
-
             <section className="analytics-section" aria-label="Oldest active listings">
               <h2 className="analytics-section-title">Review your oldest listings</h2>
               <p className="analytics-note">Up to 8 listings that have been active for 90+ days. Open one to review its price, photos, or details.</p>
@@ -240,50 +224,6 @@ export function AnalyticsPage({ onOpenListing }: Props) {
         ) : null}
       </div>
     </div>
-  );
-}
-
-/**
- * Listings 60+ days old with no sale: the ones to cut past the everyday 25% in
- * the next sale event, as deep as their cost after fees allows.
- */
-function DiscountDeeper({
-  listings,
-  onOpenListing,
-}: {
-  listings: AnalyticsStaleListing[];
-  onOpenListing: (id: string) => void;
-}) {
-  return (
-    <section className="analytics-section" aria-label="Discount deeper">
-      <h2 className="analytics-section-title">Discount deeper</h2>
-      <p className="analytics-note">
-        Active listings up 60 days or more, oldest first. Give these 35–40% off in the next sale instead of 25%, as deep
-        as still covers what the item cost after 20% fees. Items with no cost recorded get 35%.
-      </p>
-      {listings.length === 0 ? (
-        <p className="analytics-note">Nothing has been listed 60 days without selling.</p>
-      ) : (
-        <ul className="analytics-recent analytics-stale">
-          {listings.map((listing) => (
-            <li key={listing.conversation_id}>
-              <button type="button" className="analytics-recent-row" onClick={() => onOpenListing(listing.conversation_id)}>
-                <span className="analytics-recent-title">{listing.title}</span>
-                <span className="analytics-recent-meta">
-                  {formatDays(listing.days_listed)} · {formatMoney(listing.price)}
-                  {listing.lowest_price != null ? ` · lowest ${formatMoney(listing.lowest_price)}` : ""}
-                </span>
-                <span className="analytics-recent-price">
-                  {listing.discount_percent == null || listing.sale_price == null
-                    ? "Keep full price"
-                    : `${listing.discount_percent}% off → ${formatMoney(listing.sale_price)}`}
-                </span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
   );
 }
 

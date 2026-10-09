@@ -121,6 +121,7 @@ interface Props {
   onDelete: (id: string, title: string) => void;
   onOpenSettings: () => void;
   onOpenAnalytics: () => void;
+  onOpenMarketing: () => void;
   onOpenSourcing: () => void;
   onOpenQueue: () => void;
   queueCount: number;
@@ -188,6 +189,20 @@ export function AnalyticsIcon() {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <path d="M4 19V10M10 19V5M16 19v-6M21 19H3" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+export function MarketingIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M3 10v4h4l6 4V6L7 10H3zM16.5 8.5a5 5 0 010 7M19.5 5.5a9 9 0 010 13"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }
@@ -340,6 +355,7 @@ export function ListingSidebar({
   onDelete,
   onOpenSettings,
   onOpenAnalytics,
+  onOpenMarketing,
   onOpenSourcing,
   onOpenQueue,
   queueCount,
@@ -1057,6 +1073,16 @@ export function ListingSidebar({
                 onClick={onOpenAnalytics}
               >
                 <AnalyticsIcon />
+              </button>
+              <button
+                type="button"
+                className={`sidebar-icon-btn${activeView === "marketing" ? " selected" : ""}`}
+                title="Marketing"
+                aria-label="Marketing"
+                aria-pressed={activeView === "marketing"}
+                onClick={onOpenMarketing}
+              >
+                <MarketingIcon />
               </button>
               <button
                 type="button"

@@ -1018,7 +1018,7 @@ Version 1 is complete when the user can:
 16. Confirm that no listing was published automatically.
 
 
-## Sale calendar in Analytics
+## Sale calendar in Marketing
 
 The calendar stores local promotion plans and records for eBay, Depop, and Etsy.
 A plan covers every active listing on its marketplace, because the seller runs
@@ -1051,9 +1051,9 @@ events that covered all marketplaces keep that scope. Their dates are retained,
 and UTC is explicitly flagged as assumed because the earlier schema stored no
 time zone. Sellers can correct the time zone on historical records.
 
-## Ad spend in Analytics
+## Ad spend in Marketing
 
-Analytics records spend on Poshmark Promoted Closet and Etsy Ads. Neither
+Marketing records spend on Poshmark Promoted Closet and Etsy Ads. Neither
 programme has an API Studio can read and Vendoo does not import ad charges, so
 the seller copies each dashboard's figures for a stretch of days: the spend,
 and optionally the clicks, orders, and revenue the dashboard attributes to the
