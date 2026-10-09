@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.212 — 2026-10-09
+
+- Settings → Providers now opens with which AI is in use, above the Primary, Fallback and Photo analysis choices, so you can see what's running before you change it.
+
 ## 0.1.211 — 2026-10-09
 
 - New Marketing section in the sidebar. The sale calendar, Discount deeper and the Ads tracker moved there from Analytics, so Analytics is just your sales and inventory. Pick the period for your ad totals right in the Ads section.
