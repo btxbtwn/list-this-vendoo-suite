@@ -1068,3 +1068,21 @@ period's profit on sales with a recorded cost, less all ad spend in the period.
 Figures the seller left blank stay unknown and never read as zero. Saving or
 removing an entry never writes to a marketplace or to Vendoo.
 
+## Business assistant
+
+The Assistant page is a chat about the business as a whole, apart from any
+listing's chat, and it keeps one running conversation of its own. On every
+question Studio builds a fresh brief from its local data and sends it with the
+question and the recent turns to the seller's listing provider: every listing as
+one row (status, brand, category, asking price, cost, sold price, fees, profit,
+marketplace, dates, days, box), the Analytics totals for each period, the boxes
+bought and what each returned, the current Sourcing buy list, ad spend, sale
+events, and sourcing checks. Nothing is retrieved selectively, so an answer can
+draw on any of it, and nothing in the brief is stored with the conversation.
+
+Listing rows have a size budget. Past it the oldest sales and the drafts are
+left out and the brief says how many; the period totals still count them.
+
+The Assistant only reads. It has no tools, and its routes write nothing but its
+own conversation: they never edit a listing, call Vendoo, or reach a
+marketplace. Listing photos, descriptions, and secrets are not in the brief.

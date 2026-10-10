@@ -46,6 +46,7 @@ import type {
 } from "./types";
 import { readSse } from "./sse";
 import type { AdSpendEntry, AdSpendInput } from "./adSpend";
+import type { AssistantMessage, AssistantStreamHandlers } from "./assistant";
 import type { SaleCalendarData, SaleEventStatus, SalePlan, SaleRecord } from "./saleCalendar";
 
 const BASE = "/api";
@@ -197,6 +198,32 @@ export const api = {
       request<ScoutCheck>(`/scout/${id}`, { method: "PATCH", body: JSON.stringify({ asking_price: askingPrice }) }),
     decide: (id: string, decision: "bought" | "passed") =>
       request<ScoutCheck>(`/scout/${id}/decision`, { method: "POST", body: JSON.stringify({ decision }) }),
+  },
+  assistant: {
+    messages: () => request<AssistantMessage[]>("/assistant/messages"),
+    clear: () => request<{ ok: boolean }>("/assistant/messages", { method: "DELETE" }),
+    /** Stream an answer; the question and what was answered are saved server-side. */
+    ask: async (text: string, handlers: AssistantStreamHandlers, signal?: AbortSignal): Promise<void> => {
+      const res = await fetch(`${BASE}/assistant/messages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
+        body: JSON.stringify({ text }),
+        cache: "no-store",
+        signal,
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({ detail: res.statusText }));
+        throw new Error(errorMessage(body, `Request failed: ${res.status}`));
+      }
+      let failure = "";
+      await readSse(res, (event, data) => {
+        if (event === "message") handlers.onText(data);
+        else if (event === "status") handlers.onStatus(data);
+        else if (event === "thinking") handlers.onStatus("Thinking…");
+        else if (event === "error") failure = data;
+      });
+      if (failure) throw new Error(failure);
+    },
   },
   adSpend: {
     list: () => request<AdSpendEntry[]>("/analytics/ads"),

@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from vendoo_studio.config import HOST, PORT, CORS_ORIGINS, frontend_dist_dir
 from vendoo_studio.database import init_db
 from vendoo_studio.routes import health, conversations, photos, listings, jobs, settings, extension, chat, updates, desktop, imports
-from vendoo_studio.routes import ad_spend, analytics, backups, boxes, browser, catalog, changelog, sale_calendar, scout, sourcing, vendoo_api, suggestions
+from vendoo_studio.routes import ad_spend, analytics, assistant, backups, boxes, browser, catalog, changelog, sale_calendar, scout, sourcing, vendoo_api, suggestions
 from vendoo_studio.version import app_version
 
 
@@ -113,6 +113,7 @@ app.include_router(sourcing.router)
 app.include_router(boxes.router)
 app.include_router(sale_calendar.router)
 app.include_router(ad_spend.router)
+app.include_router(assistant.router)
 app.include_router(scout.router)
 app.include_router(browser.router)
 app.include_router(vendoo_api.router)

@@ -6,6 +6,11 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.223 — 2026-10-10
+
+- New Assistant page: a chat about your business as a whole, separate from any listing's chat. Ask things like "which brands make me the most profit?", "what has sat longest and what should I do with it?" or "which boxes paid off?". Each question is answered from everything Studio holds right now: every listing, your sales and profit, the boxes you bought, the buy list, ad spend, sale events and sourcing checks.
+- The Assistant only reads. It cannot change a listing or a price, and it never lists, delists or sends anything.
+
 ## 0.1.222 — 2026-10-10
 
 - Sourcing now scouts PaperCrane (papercranewholesale.com), a marketplace of vetted US vintage sellers, alongside Raghouse and Thrift Vintage Fashion: every active Cream (A) and Standard (B) lot, with shipping estimated from the seller's state and card processing included, bought from the lot's own page.
