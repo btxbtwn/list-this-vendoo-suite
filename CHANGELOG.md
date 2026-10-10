@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.224 — 2026-10-10
+
+- After an update, a browser that had Studio open (your phone over Tailscale, for example) could keep showing the old interface against the new version, which is why PaperCrane was missing from the supplier cards. The page shell is now re-checked on every load, and an interface that is behind the backend reloads itself once.
+
 ## 0.1.223 — 2026-10-10
 
 - New Assistant page: a chat about your business as a whole, separate from any listing's chat. Ask things like "which brands make me the most profit?", "what has sat longest and what should I do with it?" or "which boxes paid off?". Each question is answered from everything Studio holds right now: every listing, your sales and profit, the boxes you bought, the buy list, ad spend, sale events and sourcing checks.

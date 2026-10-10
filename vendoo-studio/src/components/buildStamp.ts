@@ -28,9 +28,19 @@ export function frontendBuildState(
       ? [
           `This window is running the ${version} UI${build.short_sha ? ` (${build.short_sha})` : ""}.`,
           `Studio itself is on ${backend}.`,
-          "The interface did not rebuild after the last update. Quit and reopen List This Studio;",
-          "it rebuilds the interface on launch. If it keeps saying stale, reinstall from the latest release.",
+          "Reload the page. If it keeps saying stale, the interface did not rebuild after the last update:",
+          "quit and reopen List This Studio; it rebuilds the interface on launch, or reinstall from the latest release.",
         ].join(" ")
       : undefined,
   };
+}
+
+const RELOADED_KEY = "studio.reloaded-for";
+
+/** Whether to reload now for `backendVersion`: once per backend version per tab, so a bundle
+ * that is stale on disk does not reload forever. */
+export function reloadForBackend(backendVersion: string, storage: Pick<Storage, "getItem" | "setItem">): boolean {
+  if (!backendVersion || storage.getItem(RELOADED_KEY) === backendVersion) return false;
+  storage.setItem(RELOADED_KEY, backendVersion);
+  return true;
 }

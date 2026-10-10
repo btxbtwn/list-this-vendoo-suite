@@ -5,10 +5,10 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 
 from vendoo_studio.config import HOST, PORT, CORS_ORIGINS, frontend_dist_dir
 from vendoo_studio.database import init_db
+from vendoo_studio.static_files import FrontendFiles
 from vendoo_studio.routes import health, conversations, photos, listings, jobs, settings, extension, chat, updates, desktop, imports
 from vendoo_studio.routes import ad_spend, analytics, assistant, backups, boxes, browser, catalog, changelog, sale_calendar, scout, sourcing, vendoo_api, suggestions
 from vendoo_studio.version import app_version
@@ -124,7 +124,7 @@ app.include_router(desktop.router)
 
 dist_dir = frontend_dist_dir()
 if dist_dir.exists():
-    app.mount("/", StaticFiles(directory=str(dist_dir), html=True), name="static")
+    app.mount("/", FrontendFiles(directory=str(dist_dir), html=True), name="static")
 
 
 def main():
