@@ -6,6 +6,14 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.225 — 2026-10-10
+
+- The Assistant now knows more about each listing: its size, condition, colour, labels, SKU and which marketplaces it is listed on, so you can ask things like "which sizes sell fastest?" or "what is only on eBay?".
+- It sees every time you changed an asking price in Studio, so it can tell you whether your price cuts are moving stock.
+- New "About your business" note under the Assistant's message box. Write your goals, the profit you want per item, what you will not source, and it is kept in mind on every question.
+- Listings the Assistant names are now links: click one to open it.
+- The Assistant can look things up before it answers, including listing descriptions, each marketplace's fields, and listings that did not fit in a very large shop. You see "Looking up…" while it does. It still only reads.
+
 ## 0.1.224 — 2026-10-10
 
 - After an update, a browser that had Studio open (your phone over Tailscale, for example) could keep showing the old interface against the new version, which is why PaperCrane was missing from the supplier cards. The page shell is now re-checked on every load, and an interface that is behind the backend reloads itself once.

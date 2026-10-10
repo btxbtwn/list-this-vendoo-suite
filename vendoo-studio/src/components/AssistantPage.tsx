@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef, useState, type MouseEvent } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import { confirmDialog } from "../ui/confirmDialog";
+import { addToast } from "../ui/toast";
 import { ChatMarkdown } from "./ChatMarkdown";
 import { stableStreamingText } from "./streamingText";
 
@@ -16,9 +17,19 @@ export const ASSISTANT_STARTERS = [
 /** Streamed text reaches the page at most this often, so a long answer does not re-render per token. */
 const PAINT_MS = 50;
 const MESSAGES_KEY = ["assistant", "messages"];
+const NOTE_KEY = ["assistant", "note"];
+const NOTE_MAX = 4000;
+/** How an answer points at a listing: `[title](#listing-<id>)`. */
+const LISTING_LINK = /^#listing-([\w-]+)$/;
+
+/** The listing an answer's link opens, or null for any other link. */
+export function linkedListingId(href: string | null | undefined): string | null {
+  return LISTING_LINK.exec(href ?? "")?.[1] ?? null;
+}
 
 interface Props {
   onOpenProviders: () => void;
+  onOpenListing: (id: string) => void;
 }
 
 interface LiveTurn {
@@ -31,12 +42,13 @@ interface LiveTurn {
  * A chat about the business as a whole, apart from any listing's chat. Every
  * question is answered from all of Studio's data, and it changes none of it.
  */
-export function AssistantPage({ onOpenProviders }: Props) {
+export function AssistantPage({ onOpenProviders, onOpenListing }: Props) {
   const queryClient = useQueryClient();
   const messages = useQuery({ queryKey: MESSAGES_KEY, queryFn: api.assistant.messages });
   const [input, setInput] = useState("");
   const [live, setLive] = useState<LiveTurn | null>(null);
   const [error, setError] = useState("");
+  const [noteOpen, setNoteOpen] = useState(false);
   const controller = useRef<AbortController | null>(null);
   const scroller = useRef<HTMLDivElement | null>(null);
   const pinned = useRef(true);
@@ -98,6 +110,20 @@ export function AssistantPage({ onOpenProviders }: Props) {
     await queryClient.invalidateQueries({ queryKey: MESSAGES_KEY });
   };
 
+  // Answers link the listings they name; open those in Studio instead of a new tab.
+  const openLinkedListing = (event: MouseEvent<HTMLDivElement>) => {
+    const link = (event.target as HTMLElement).closest("a");
+    const id = linkedListingId(link?.getAttribute("href"));
+    if (!id) return;
+    event.preventDefault();
+    const known = queryClient.getQueryData<{ id: string }[]>(["conversations"]);
+    if (known && !known.some((listing) => listing.id === id)) {
+      addToast({ type: "warning", title: "That listing is no longer in Studio." });
+      return;
+    }
+    onOpenListing(id);
+  };
+
   const visible = live ? stableStreamingText(live.answer) : "";
   const empty = !turns.length && !live && !messages.isLoading;
   const needsProvider = /sign in with chatgpt/i.test(error);
@@ -112,7 +138,7 @@ export function AssistantPage({ onOpenProviders }: Props) {
           pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
         }}
       >
-        <div className="assistant-inner">
+        <div className="assistant-inner" onClick={openLinkedListing}>
           {empty ? (
             <div className="assistant-welcome">
               <h1>Ask about your business</h1>
@@ -211,13 +237,68 @@ export function AssistantPage({ onOpenProviders }: Props) {
               </button>
             )}
           </div>
-          {turns.length && !live ? (
-            <button type="button" className="assistant-clear" onClick={() => { void startOver(); }}>
-              Clear conversation
+          {noteOpen ? <BusinessNote onClose={() => setNoteOpen(false)} /> : null}
+          <div className="assistant-actions">
+            <button type="button" className="assistant-action" aria-expanded={noteOpen} onClick={() => setNoteOpen((open) => !open)}>
+              About your business
             </button>
-          ) : null}
+            {turns.length && !live ? (
+              <button type="button" className="assistant-action" onClick={() => { void startOver(); }}>
+                Clear conversation
+              </button>
+            ) : null}
+          </div>
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * What the seller wants the assistant to keep in mind — goals, margins, what
+ * they will not source — sent along with every question.
+ */
+function BusinessNote({ onClose }: { onClose: () => void }) {
+  const queryClient = useQueryClient();
+  const saved = useQuery({ queryKey: NOTE_KEY, queryFn: api.assistant.note });
+  const [draft, setDraft] = useState<string | null>(null);
+  const save = useMutation({
+    mutationFn: (note: string) => api.assistant.saveNote(note),
+    onSuccess: (result) => {
+      queryClient.setQueryData(NOTE_KEY, result);
+      onClose();
+    },
+  });
+  const note = draft ?? saved.data?.note ?? "";
+
+  return (
+    <form
+      className="assistant-note"
+      onSubmit={(event) => {
+        event.preventDefault();
+        save.mutate(note);
+      }}
+    >
+      <label htmlFor="assistant-note-text">About your business</label>
+      <p className="analytics-note">
+        Anything the assistant should keep in mind on every question: your goals, the margin you want, how much time
+        you have, what you will not source, where you ship from.
+      </p>
+      <textarea
+        id="assistant-note-text"
+        className="input"
+        rows={5}
+        maxLength={NOTE_MAX}
+        value={note}
+        disabled={saved.isLoading}
+        placeholder="I want at least $15 profit per item and sell mostly vintage menswear. I list about 20 items a week."
+        onChange={(event) => setDraft(event.target.value)}
+      />
+      {save.isError ? <p className="chat-error-text">{(save.error as Error).message || "Could not save."}</p> : null}
+      <div className="assistant-note-actions">
+        <button type="button" className="btn btn-ghost btn-sm" onClick={onClose}>Cancel</button>
+        <button type="submit" className="btn btn-primary btn-sm" disabled={save.isPending || saved.isLoading}>Save</button>
+      </div>
+    </form>
   );
 }

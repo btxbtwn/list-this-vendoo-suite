@@ -1073,16 +1073,36 @@ removing an entry never writes to a marketplace or to Vendoo.
 The Assistant page is a chat about the business as a whole, apart from any
 listing's chat, and it keeps one running conversation of its own. On every
 question Studio builds a fresh brief from its local data and sends it with the
-question and the recent turns to the seller's listing provider: every listing as
-one row (status, brand, category, asking price, cost, sold price, fees, profit,
-marketplace, dates, days, box), the Analytics totals for each period, the boxes
-bought and what each returned, the current Sourcing buy list, ad spend, sale
-events, and sourcing checks. Nothing is retrieved selectively, so an answer can
-draw on any of it, and nothing in the brief is stored with the conversation.
+question and the recent turns to the seller's listing provider:
 
-Listing rows have a size budget. Past it the oldest sales and the drafts are
-left out and the brief says how many; the period totals still count them.
+- every listing as one row: id, status, brand, category, size, condition,
+  colour, labels, SKU, the marketplaces it is listed on, asking price, cost,
+  sold price, fees, profit, where it sold, dates, days, and box;
+- the Analytics totals for each period;
+- each change to a listing's asking price between saved revisions;
+- the boxes bought and what each returned, the current Sourcing buy list, ad
+  spend, sale events, and sourcing checks;
+- the seller's own note about the business, edited under the composer and kept
+  in `settings.json`.
 
-The Assistant only reads. It has no tools, and its routes write nothing but its
-own conversation: they never edit a listing, call Vendoo, or reach a
-marketplace. Listing photos, descriptions, and secrets are not in the brief.
+Nothing in the brief is stored with the conversation. Listing rows have a size
+budget. Past it the oldest sales and the drafts are left out and the brief says
+how many; the period totals still count them.
+
+**Lookups.** The providers have no tool calling, so the assistant asks for more
+by replying with nothing but one fenced `sql` block. Studio runs that `SELECT`
+and replies with the rows, up to six times per question, before the answer
+streams; the seller sees only a "Looking up…" status. The query runs against a
+throwaway in-memory SQLite copy built for that question, holding the same rows
+plus each listing's description and full listing JSON, with tables `listings`,
+`price_changes`, `boxes`, `ad_spend`, and `sale_events`. An authorizer allows
+only reads of that copy (no `ATTACH`, `PRAGMA`, or writes), each query has a
+time limit, and results are capped. Studio's real database is never handed to a
+query.
+
+**Links.** An answer names a listing as `[title](#listing-<id>)`; clicking it
+opens that listing in Studio.
+
+The Assistant only reads. Its routes write nothing but its own conversation and
+the seller's note: they never edit a listing, call Vendoo, or reach a
+marketplace. Photos and secrets are in neither the brief nor the copy.
