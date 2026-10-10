@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.222 — 2026-10-10
+
+- Sourcing now scouts PaperCrane (papercranewholesale.com), a marketplace of vetted US vintage sellers, alongside Raghouse and Thrift Vintage Fashion: every active Cream (A) and Standard (B) lot, with shipping estimated from the seller's state and card processing included, bought from the lot's own page.
+
 ## 0.1.221 — 2026-10-09
 
 - Sourcing recommendations were impossible to get: the lower-sales test charged your per-piece operating costs on every piece in a box even in a scenario where half of them never sell, which ruled out every box in both stores, including ones with a 500% expected return. The test still assumes only half your planned sales at the lowest price seen, but now charges operating costs on those pieces only.

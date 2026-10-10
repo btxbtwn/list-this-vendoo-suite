@@ -29,7 +29,7 @@ class SourcingActiveComp(BaseModel):
 
 class SourcingLot(BaseModel):
     store: str
-    variant_id: int
+    variant_id: int | str  # Shopify variant number, or a marketplace lot id
     title: str
     url: str
     price: float
@@ -43,6 +43,11 @@ class SourcingLot(BaseModel):
     listed: str | None
     seller_resale: float | None
     theme: str
+    # Marketplace lots: who sells it and the state it ships from; shipping may be in the price.
+    seller: str | None = None
+    origin: str | None = None
+    free_shipping: bool = False
+    checkout_fee: float = 0.0
     ship_est: float
     ship_list: float
     usable_pcs: float
@@ -89,6 +94,8 @@ class SourcingCart(BaseModel):
     shipping: float
     free_shipping: bool
     free_shipping_over: float | None
+    # Whether the link opens a cart with the boxes in it, or the first box's own page.
+    cart_fills: bool
     cart_url: str
     lots: list[SourcingLot]
 
@@ -106,6 +113,8 @@ class SourcingStore(BaseModel):
     error: str | None
     sellout: float | None
     zone: int | None
+    # Ship-from locations with a zone: 1 for a warehouse, the seller states for a marketplace.
+    origins: int = 1
 
 
 class SourcingShippingCalibration(BaseModel):

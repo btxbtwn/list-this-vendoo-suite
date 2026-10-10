@@ -66,12 +66,37 @@ TVF = [
     _tvf("Sample Tee Stock", [("Default Title", "0.00", 907, True)], vid=400),
 ]
 
-CATALOGS = {"raghouse": RAGHOUSE, "tvf": TVF}
-ZONES = {"raghouse": 6, "tvf": 5}  # to 70115
+def _papercrane(title: str, price: float, pcs: int, *, grade="b", weight_oz=320, state="Texas", seller="ed2k",
+                exact_ship=True, category="Tops", status="active", lid="aaaa0001", posted="2026-09-20T03:29:15+00:00"):
+    return {
+        "id": f"{lid}-0000-0000-0000-000000000000", "slug": f"{title.lower().replace(' ', '-')}-{lid}",
+        "title": title, "price": f"$${price}", "priceCents": round(price * 100), "moq": f"{pcs} units", "moqCount": pcs,
+        "category": category, "department": "unisex", "state": state, "seller": seller, "sellerType": "reseller",
+        "bundleType": "wholesale", "isBale": False, "status": status, "accuracy": "exact", "conditionGrade": grade,
+        "sizeRange": "S–XL", "weightOz": weight_oz, "boxL": 18, "boxW": 14, "boxH": 12, "boxCount": 1,
+        "shippingCents": 0, "shipTotalCents": 0, "shipBuyerPct": 100, "shipExact": exact_ship, "savesCount": 0,
+        "postedAt": posted, "editedAt": None, "img": "", "images": [], "videos": [], "videoUrl": None,
+    }
+
+
+PAPERCRANE = [
+    _papercrane("Cartoon tees 30pc", 240, 30, grade="b", weight_oz=240, state="Texas", lid="aaaa0001"),
+    _papercrane("Vintage graphic tees 20pc", 200, 20, grade="a", weight_oz=160, state="Michigan", lid="aaaa0002",
+                exact_ship=False),
+    _papercrane("As-is cartoon tees 40pc", 100, 40, grade="c", lid="aaaa0003"),
+    _papercrane("Mixed hat lot", 80, 30, grade="b", category="Accessories", lid="aaaa0004"),
+    _papercrane("Cartoon tees from the sellers page", 150, 15, grade=None, weight_oz=None, state="Texas", lid="aaaa0005",
+                posted=None),
+]
+
+CATALOGS = {"raghouse": RAGHOUSE, "tvf": TVF, "papercrane": PAPERCRANE}
+ZONES = {"raghouse": 6, "tvf": 5, "papercrane": {"Texas": 4, "Michigan": 6}}  # to 70115
 # USPS charts by origin, trimmed to the destinations these tests use.
 ZONE_CHARTS = {
     "850": {"701": 6, "100": 8, "850": 1, "967": 8},
     "330": {"701": 5, "100": 6, "850": 8, "967": 8},
+    "752": {"701": 4, "100": 7, "850": 5, "967": 8},
+    "482": {"701": 6, "100": 5, "850": 7, "967": 8},
 }
 
 
@@ -248,6 +273,56 @@ class ScoutScriptTest(unittest.TestCase):
             with self.subTest(title=title):
                 self.assertEqual(self.s.theme(title), expected)
 
+    def test_papercrane_lots_carry_their_seller_state_grade_and_shipping_terms(self):
+        lots = {lot["title"]: lot for lot in self._lots()}
+        tees = lots["Cartoon tees 30pc"]
+        self.assertEqual((tees["grade"], tees["origin"], tees["seller"], tees["lbs"], tees["listed"]),
+                         ("standard", "Texas", "ed2k", 15.0, "2026-09-20"))
+        self.assertEqual(tees["url"], "https://www.papercranewholesale.com/shop/cartoon-tees-30pc-aaaa0001")
+        # UPS zone 4 from Texas, 15 lb, plus card processing at 2.9% + $0.30 on the lot price.
+        self.assertGreater(tees["ship_est"], 0)
+        self.assertEqual(tees["checkout_fee"], 7.26)
+        self.assertEqual(tees["landed"], round(240 + tees["ship_est"] + 7.26, 2))
+        # Shipping in the price: nothing added for it, the Cream grade yields 95%.
+        vintage = lots["Vintage graphic tees 20pc"]
+        self.assertEqual((vintage["grade"], vintage["free_shipping"], vintage["ship_est"], vintage["usable_pcs"]),
+                         ("a", True, 0.0, 19.0))
+        # A sellers-page card has no grade or weight: ungraded, weight estimated from the pieces.
+        card = lots["Cartoon tees from the sellers page"]
+        self.assertEqual((card["grade"], card["lbs_estimated"], card["listed"]), ("good", True, None))
+        # Mixed/As-Is lots and accessories are never lots.
+        self.assertNotIn("As-is cartoon tees 40pc", lots)
+        self.assertNotIn("Mixed hat lot", lots)
+
+    def test_papercrane_feed_is_parsed_from_the_home_and_sellers_pages(self):
+        home = "0:" + json.dumps({"listings": [PAPERCRANE[0], PAPERCRANE[1]]}) + "\n1:" + json.dumps(["$", "div", {"l": PAPERCRANE[0]}])
+        sellers = "0:" + json.dumps([{"username": "ed2k", "lots": [
+            {k: v for k, v in PAPERCRANE[4].items() if k not in ("weightOz", "conditionGrade", "postedAt")},
+            {k: v for k, v in PAPERCRANE[0].items() if k not in ("weightOz", "conditionGrade")}]}])
+        with mock.patch.object(self.s, "_rsc", side_effect=lambda path: home if path == "/" else sellers), \
+                mock.patch.object(self.s.time, "sleep"):
+            products = self.s.fetch_papercrane()
+        self.assertEqual([p["id"][:8] for p in products], ["aaaa0001", "aaaa0002", "aaaa0005"])
+        self.assertEqual(products[0]["weightOz"], 240)  # the home page's full lot wins over the card
+
+    def test_a_marketplace_ships_from_each_sellers_state(self):
+        cfg = self.s.load_shipping()
+        self.assertEqual(self.s.origin_zip3s("papercrane", PAPERCRANE, cfg), {"Michigan": "482", "Texas": "752"})
+        self.assertEqual(self.s.origin_zip3s("tvf", TVF, cfg), {"": "330"})
+        self.assertEqual(self.s.lot_zone(ZONES, "papercrane", {"origin": "Texas"}), 4)
+        self.assertIsNone(self.s.lot_zone(ZONES, "papercrane", {"origin": "Alaska"}))
+        self.assertEqual(self.s.lot_zone(ZONES, "tvf", {}), 5)
+
+    def test_a_marketplace_cart_link_opens_the_first_lot(self):
+        rows = self.s.score_lots(CATALOGS, self.cfg, ZONES, self.s.Filters(cost_per_piece=0),
+                                 {"cartoon t-shirts": 60, "vintage graphic t-shirts": 60})[1]
+        plan = self.s.buy_list([r for r in rows if r["store"] == "papercrane"], self.cfg, budget=1000, cost_per_piece=0)
+        cart = plan["carts"][0]
+        self.assertFalse(cart["cart_fills"])
+        self.assertEqual(cart["cart_url"], cart["lots"][0]["url"])
+        shopify = self.s.buy_list([r for r in rows if r["store"] == "raghouse"], self.cfg, budget=1000, cost_per_piece=0)
+        self.assertTrue(shopify["carts"][0]["cart_fills"])
+
     def test_tvf_lower_grades_are_never_lots(self):
         catalogs = {"tvf": [_tvf("Cartoon T-Shirts (70 Pieces)", [
             ("A Grade", "90.00", 12701, True), ("A/B Grade", "60.00", 12701, True), ("B Grade", "30.00", 12701, True),
@@ -379,7 +454,7 @@ class RefreshTest(unittest.TestCase):
         ]})
         with self._models(_search("ChatGPT", ['{"terms": ["cartoon"]}', prices, "{}"])):
             snapshot = box_scout.refresh()
-        self.assertEqual(set(snapshot["store_buy_lists"]), {"raghouse", "tvf"})
+        self.assertEqual(set(snapshot["store_buy_lists"]), {"raghouse", "tvf", "papercrane"})
         for store, plan in snapshot["store_buy_lists"].items():
             self.assertEqual(plan["budget"], 300)
             self.assertLessEqual(plan["total"], 300)
@@ -438,7 +513,7 @@ class RefreshTest(unittest.TestCase):
                 mock.patch.object(box_scout, "_research_trends", trends), \
                 mock.patch.object(box_scout, "_research_prices", prices):
             snapshot = box_scout.refresh(recrawl=False)
-        self.assertEqual(self.fetch.call_count, 2)
+        self.assertEqual(self.fetch.call_count, len(CATALOGS))
         self.assertEqual(snapshot["seasonality"]["window"]["ready_in_weeks"], 8)
         self.assertEqual(snapshot["seasonality"]["window"]["selling_window_weeks"], 6)
         trends.assert_called_once()
@@ -481,10 +556,10 @@ class RefreshTest(unittest.TestCase):
             box_scout.refresh()
             box_scout.set_prefs(zip="10001")
             snapshot = box_scout.refresh(recrawl=False)
-        self.assertEqual(self.fetch.call_count, 2)  # one crawl per store, reused for the new ZIP
-        self.assertEqual(self.charts.call_count, 2)  # zone charts are kept too
+        self.assertEqual(self.fetch.call_count, len(CATALOGS))  # one crawl per store, reused for the new ZIP
+        self.assertEqual(self.charts.call_count, len(ZONE_CHARTS))  # zone charts are kept too
         self.assertEqual(snapshot["destination_zip"], "10001")
-        self.assertEqual({k: v["zone"] for k, v in snapshot["stores"].items()}, {"raghouse": 8, "tvf": 6})
+        self.assertEqual({k: v["zone"] for k, v in snapshot["stores"].items()}, {"raghouse": 8, "tvf": 6, "papercrane": None})
         cartoon = next(lot for lot in snapshot["lots"] if lot["title"] == "Cartoon T-Shirts 60 pcs")
         self.assertEqual(cartoon["ship_est"], 44.04)  # FedEx 29 lb, zone 8: ($59.88 + $6.45) x 1.29 x 0.5147
         self.assertEqual(box_scout.read_state()["prefs"]["recent_zips"], ["10001", "70115"])
@@ -505,7 +580,8 @@ class RefreshTest(unittest.TestCase):
             snapshot = box_scout.refresh()
         self.assertIn("Raghouse did not return its catalog", snapshot["stores"]["raghouse"]["error"])
         self.assertIsNone(snapshot["stores"]["tvf"]["error"])
-        self.assertEqual({lot["store"] for lot in snapshot["lots"]}, {"tvf"})
+        self.assertEqual({lot["store"] for lot in snapshot["lots"]}, {"tvf", "papercrane"})
+        self.assertEqual((snapshot["stores"]["papercrane"]["zone"], snapshot["stores"]["papercrane"]["origins"]), (None, 2))
 
 
     def test_preferences_saved_during_research_survive_and_request_a_rebuild(self):
@@ -569,7 +645,7 @@ class ShippingAndVipTest(RefreshTest):
         graphic = next(lot for lot in snapshot["lots"] if lot["title"].startswith("Wholesale Vintage Graphic"))
         # Half of the $32.46 UPS list estimate; Raghouse keeps the factor from shipping.json.
         self.assertEqual((graphic["ship_list"], graphic["ship_est"]), (32.46, 16.23))
-        self.assertEqual(snapshot["shipping"]["factors"], {"raghouse": 0.5147, "tvf": 0.5})
+        self.assertEqual(snapshot["shipping"]["factors"], {"raghouse": 0.5147, "tvf": 0.5, "papercrane": 1.0})
         self.assertEqual(snapshot["shipping"]["calibration"]["tvf"]["orders"], 2)
 
     def test_vip_upside_counts_members_only_boxes_that_would_qualify(self):
@@ -692,7 +768,7 @@ class SourcingRouteTest(unittest.TestCase):
             box_scout.refresh()
         body = self.client.get("/api/sourcing").json()
         self.assertEqual(body["snapshot"]["destination_zip"], "70115")
-        self.assertEqual(set(body["snapshot"]["stores"]), {"raghouse", "tvf"})
+        self.assertEqual(set(body["snapshot"]["stores"]), {"raghouse", "tvf", "papercrane"})
 
 
 class ResearchEvidenceTest(unittest.TestCase):

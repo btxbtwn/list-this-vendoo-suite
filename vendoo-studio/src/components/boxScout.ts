@@ -2,11 +2,19 @@ import type { SourcingBuyList, SourcingCart, SourcingLot, SourcingSnapshot, Sour
 
 /**
  * Each store's own name for a box's grade. Raghouse lots are all plain (its "Recycle"
- * lots are never scouted); TVF grades A to C and says nothing on a plain lot.
+ * lots are never scouted); TVF grades A to C and says nothing on a plain lot;
+ * PaperCrane sellers grade Cream (A) or Standard (B), or leave a lot ungraded.
  */
 export const GRADE_LABELS: Record<string, Record<string, string>> = {
   raghouse: { good: "Good" },
   tvf: { a: "A Grade", ab: "A/B Grade", b: "B Grade", bc: "B/C Grade", c: "C Grade" },
+  papercrane: { a: "Cream (A)", standard: "Standard (B)" },
+};
+
+export const STORE_NAMES: Record<string, string> = {
+  raghouse: "Raghouse",
+  tvf: "Thrift Vintage Fashion",
+  papercrane: "PaperCrane",
 };
 
 export function gradeLabel(lot: SourcingLot): string | null {
@@ -44,12 +52,14 @@ export function lotReason(lot: SourcingLot, withStore = false): string {
     lot.resale_per_pc != null ? `estimated resale $${Math.round(lot.resale_per_pc)} each` : null,
     lot.compare_at != null && lot.compare_at > lot.price ? `${Math.round((1 - lot.price / lot.compare_at) * 100)}% off` : null,
     lot.vip ? "VIP only" : null,
+    lot.seller ? `@${lot.seller}` : null,
+    lot.origin ? `ships from ${lot.origin}${lot.free_shipping ? ", included" : ""}` : null,
   ];
   return parts.filter(Boolean).join(" · ");
 }
 
 export function storeName(store: string): string {
-  return store === "tvf" ? "Thrift Vintage Fashion" : "Raghouse";
+  return STORE_NAMES[store] ?? store;
 }
 
 /** All available variants outside the selected buy list, in their ranked order. */

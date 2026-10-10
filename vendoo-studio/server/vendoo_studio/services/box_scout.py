@@ -54,7 +54,7 @@ RECENT_ZIPS = 4
 # Bump when the snapshot's shape changes: a snapshot written by another build is
 # a stale cache, dropped and rebuilt rather than served to a page that cannot
 # read it.
-SNAPSHOT_FORMAT = 3
+SNAPSHOT_FORMAT = 4
 
 DEFAULT_PREFS = {
     "budget": 300.0, "min_roi": 1.0, "raghouse_vip": False, "zip": "70115", "recent_zips": ["70115"],
@@ -434,26 +434,44 @@ def _crawl(errors: dict[str, str], *, recrawl: bool) -> dict[str, list[dict]]:
     return catalogs
 
 
-def _zones(state: dict, cfg: dict, dest_zip: str, now: datetime, errors: dict[str, str]) -> dict[str, int]:
-    """Each store's shipping zone to `dest_zip`, from USPS charts kept for a month."""
-    zones = {}
+def _zone_chart(state: dict, origin: str, now: datetime) -> dict | None:
+    """The USPS chart from a 3-digit origin, kept for a month; None when unreadable."""
+    cached = state["zone_charts"].get(origin)
+    age = _age(cached and cached.get("fetched_at"), now)
+    if age is None or age >= ZONE_CHART_MAX_AGE:
+        try:
+            chart = scout().fetch_zone_chart(origin)
+            cached = state["zone_charts"][origin] = {"chart": chart, "fetched_at": now.isoformat()}
+        except FETCH_ERRORS as exc:
+            log.warning("Could not read the USPS zone chart for origin %s: %s", origin, exc)
+    return cached["chart"] if cached else None
+
+
+def _zones(state: dict, cfg: dict, catalogs: dict[str, list[dict]], dest_zip: str, now: datetime,
+           errors: dict[str, str]) -> dict[str, int | dict[str, int]]:
+    """Each store's shipping zone to `dest_zip`: one zone for a warehouse store,
+    {state: zone} for a marketplace whose lots ship from each seller's state."""
+    s = scout()
+    zones: dict[str, int | dict[str, int]] = {}
     for store, info in cfg["stores"].items():
-        origin = info["origin_zip3"]
-        cached = state["zone_charts"].get(origin)
-        age = _age(cached and cached.get("fetched_at"), now)
-        if age is None or age >= ZONE_CHART_MAX_AGE:
-            try:
-                chart = scout().fetch_zone_chart(origin)
-                cached = state["zone_charts"][origin] = {"chart": chart, "fetched_at": now.isoformat()}
-            except FETCH_ERRORS as exc:
-                if not cached:
-                    errors.setdefault(store, f"Could not read the USPS zone chart for {info['origin']}: {exc}")
-                    continue
-        zone = scout().zone_for(cached["chart"], dest_zip)
-        if zone is None:
-            errors.setdefault(store, f"{dest_zip} is outside the 48 contiguous states the shipping rates cover.")
-            continue
-        zones[store] = zone
+        origins = s.origin_zip3s(store, catalogs.get(store, []), cfg)
+        by_origin: dict[str, int] = {}
+        unreadable = []
+        for label, origin in origins.items():
+            chart = _zone_chart(state, origin, now)
+            if chart is None:
+                unreadable.append(label or info["origin"])
+                continue
+            zone = s.zone_for(chart, dest_zip)
+            if zone is None:
+                errors.setdefault(store, f"{dest_zip} is outside the 48 contiguous states the shipping rates cover.")
+                break
+            by_origin[label] = zone
+        else:
+            if origins and not by_origin:
+                errors.setdefault(store, f"Could not read the USPS zone chart for {', '.join(unreadable)}.")
+            elif by_origin:
+                zones[store] = by_origin[""] if list(by_origin) == [""] else by_origin
     return zones
 
 
@@ -551,8 +569,9 @@ def _refresh(*, recrawl: bool, research: bool) -> dict:
     for store, entry in shipping_calibration.items():
         if entry["factor"] is not None and store in cfg["stores"]:
             cfg["stores"][store]["ship_factor"] = entry["factor"]
-    zones = _zones(state, cfg, prefs["zip"], now, errors)
-    catalogs = {k: v for k, v in _crawl(errors, recrawl=recrawl).items() if k in zones}
+    crawled = _crawl(errors, recrawl=recrawl)
+    zones = _zones(state, cfg, crawled, prefs["zip"], now, errors)
+    catalogs = {k: v for k, v in crawled.items() if k in zones}
     can_research = research and research_available()
 
     context = planning_context(prefs, now)
@@ -636,7 +655,9 @@ def _refresh(*, recrawl: bool, research: bool) -> dict:
         "preferences": {key: prefs[key] for key in PLAN_PREFS},
         "stores": {
             store: {"name": s.STORES[store]["name"], "error": errors.get(store),
-                    "sellout": baselines.get(store), "zone": zones.get(store)}
+                    "sellout": baselines.get(store),
+                    "zone": zones[store] if isinstance(zones.get(store), int) else None,
+                    "origins": len(zones[store]) if isinstance(zones.get(store), dict) else 1}
             for store in s.STORES
         },
         "research": can_research,
