@@ -122,6 +122,7 @@ interface Props {
   onOpenSettings: () => void;
   onOpenAnalytics: () => void;
   onOpenMarketing: () => void;
+  onOpenAssistant: () => void;
   onOpenSourcing: () => void;
   onOpenQueue: () => void;
   queueCount: number;
@@ -189,6 +190,20 @@ export function AnalyticsIcon() {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <path d="M4 19V10M10 19V5M16 19v-6M21 19H3" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+export function AssistantIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M20 12a8 8 0 01-11.6 7.1L4 20l1-4.1A8 8 0 1120 12z"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }
@@ -356,6 +371,7 @@ export function ListingSidebar({
   onOpenSettings,
   onOpenAnalytics,
   onOpenMarketing,
+  onOpenAssistant,
   onOpenSourcing,
   onOpenQueue,
   queueCount,
@@ -1083,6 +1099,16 @@ export function ListingSidebar({
                 onClick={onOpenMarketing}
               >
                 <MarketingIcon />
+              </button>
+              <button
+                type="button"
+                className={`sidebar-icon-btn${activeView === "assistant" ? " selected" : ""}`}
+                title="Assistant"
+                aria-label="Assistant"
+                aria-pressed={activeView === "assistant"}
+                onClick={onOpenAssistant}
+              >
+                <AssistantIcon />
               </button>
               <button
                 type="button"

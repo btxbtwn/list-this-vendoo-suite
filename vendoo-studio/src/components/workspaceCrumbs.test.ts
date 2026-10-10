@@ -49,4 +49,11 @@ describe("workspaceCrumbs", () => {
       title: null,
     });
   });
+
+  it("reads Assistant with nothing open under it", () => {
+    expect(workspaceCrumbs("assistant", "Providers", { title: "REI XL" })).toEqual({
+      context: "Assistant",
+      title: null,
+    });
+  });
 });

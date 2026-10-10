@@ -55,6 +55,7 @@ def load_models() -> None:
     from vendoo_studio.models.listing_evidence import ListingCorrection, SaleSnapshot  # noqa: F401
     from vendoo_studio.models.sale_event import SaleEvent  # noqa: F401
     from vendoo_studio.models.ad_spend import AdSpend  # noqa: F401
+    from vendoo_studio.models.assistant import AssistantMessage  # noqa: F401
     from vendoo_studio.models.catalog import (  # noqa: F401
         CategoryFieldSchema,
         CategoryNode,

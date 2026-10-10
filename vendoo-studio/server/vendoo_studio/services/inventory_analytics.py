@@ -86,8 +86,12 @@ def inventory_analytics(
     *,
     range_id: str = "12m",
     now: datetime | None = None,
+    rows: list[AnalyticsItem] | None = None,
 ) -> dict[str, Any]:
-    """Totals for ``range_id`` (``7d``, ``30d``, ``90d``, ``12m``, or ``all``)."""
+    """Totals for ``range_id`` (``7d``, ``30d``, ``90d``, ``12m``, or ``all``).
+
+    ``rows`` lets a caller that wants several ranges load the listings once.
+    """
     if range_id not in ANALYTICS_RANGES:
         raise ValueError(range_id)
     from vendoo_studio.services.ad_spend import list_entries, summarize_ads
@@ -97,7 +101,9 @@ def inventory_analytics(
     clock = now or datetime.now(UTC)
     if clock.tzinfo is None:
         clock = clock.replace(tzinfo=UTC)
-    payload = summarize(load_rows(db), range_id=range_id, now=clock, events=windows(db))
+    payload = summarize(
+        load_rows(db) if rows is None else rows, range_id=range_id, now=clock, events=windows(db),
+    )
     return {
         **payload,
         "ads": summarize_ads(

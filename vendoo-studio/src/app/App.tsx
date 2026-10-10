@@ -9,7 +9,7 @@ import { ProviderStatus } from "../components/ProviderStatus";
 import { ChatPanel } from "../components/ChatPanel";
 import { SetupChecklist } from "../components/SetupChecklist";
 import { BrowserPreview } from "../components/BrowserPreview";
-import { AnalyticsIcon, BackIcon, SourcingIcon, ComposeIcon, HamburgerIcon, ListingSidebar, MarketingIcon, QueueIcon, SearchIcon, SettingsIcon } from "../components/ListingSidebar";
+import { AnalyticsIcon, AssistantIcon, BackIcon, SourcingIcon, ComposeIcon, HamburgerIcon, ListingSidebar, MarketingIcon, QueueIcon, SearchIcon, SettingsIcon } from "../components/ListingSidebar";
 import {
   DEFAULT_SETTINGS_SECTION,
   SETTINGS_SECTION_LABELS,
@@ -54,6 +54,9 @@ const SettingsPage = lazy(() =>
 );
 const AnalyticsPage = lazy(() =>
   import("../components/AnalyticsPage").then((module) => ({ default: module.AnalyticsPage })),
+);
+const AssistantPage = lazy(() =>
+  import("../components/AssistantPage").then((module) => ({ default: module.AssistantPage })),
 );
 const MarketingPage = lazy(() =>
   import("../components/MarketingPage").then((module) => ({ default: module.MarketingPage })),
@@ -234,6 +237,8 @@ export function App() {
       ? "Analytics"
       : activeView === "marketing"
         ? "Marketing"
+      : activeView === "assistant"
+        ? "Assistant"
       : activeView === "queue"
         ? "Queue"
       : activeView === "sourcing"
@@ -266,8 +271,8 @@ export function App() {
     closeMobileSidebar();
   };
 
-  // Analytics, Marketing and Sourcing are toggles: pressing the open one goes back to listings.
-  const togglePage = (view: "analytics" | "marketing" | "sourcing" | "queue") => {
+  // Analytics, Marketing, Sourcing and the Assistant are toggles: pressing the open one goes back to listings.
+  const togglePage = (view: "analytics" | "marketing" | "sourcing" | "assistant" | "queue") => {
     setMobilePane("workspace");
     if (activeView === view) {
       setActiveView("listings");
@@ -278,6 +283,7 @@ export function App() {
   };
   const openAnalytics = () => togglePage("analytics");
   const openMarketing = () => togglePage("marketing");
+  const openAssistant = () => togglePage("assistant");
   const openProviders = () => {
     setSettingsSection("providers");
     setSettingsTargetId(null);
@@ -568,6 +574,7 @@ export function App() {
             onOpenSettings={openSettings}
             onOpenAnalytics={openAnalytics}
             onOpenMarketing={openMarketing}
+            onOpenAssistant={openAssistant}
             onOpenSourcing={openSourcing}
             onOpenQueue={() => togglePage("queue")}
             queueCount={queueCount}
@@ -610,7 +617,7 @@ export function App() {
                   closeSettings();
                   return;
                 }
-                if (activeView === "analytics" || activeView === "marketing" || activeView === "sourcing") {
+                if (activeView === "analytics" || activeView === "marketing" || activeView === "sourcing" || activeView === "assistant") {
                   setActiveView("listings");
                   setMobileSidebarOpen(true);
                   return;
@@ -694,6 +701,15 @@ export function App() {
                 <button
                   type="button"
                   className="sidebar-icon-btn mobile-workspace-settings"
+                  title="Assistant"
+                  aria-label="Assistant"
+                  onClick={openAssistant}
+                >
+                  <AssistantIcon />
+                </button>
+                <button
+                  type="button"
+                  className="sidebar-icon-btn mobile-workspace-settings"
                   title="Settings"
                   aria-label="Settings"
                   onClick={openSettings}
@@ -742,6 +758,10 @@ export function App() {
               ) : activeView === "marketing" ? (
                 <Suspense fallback={null}>
                   <MarketingPage onOpenListing={openListing} />
+                </Suspense>
+              ) : activeView === "assistant" ? (
+                <Suspense fallback={null}>
+                  <AssistantPage onOpenProviders={openProviders} />
                 </Suspense>
               ) : activeView === "sourcing" ? (
                 <Suspense fallback={null}>

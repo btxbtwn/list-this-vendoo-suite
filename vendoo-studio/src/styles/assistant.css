@@ -1,0 +1,91 @@
+/* ── Business assistant ── */
+
+.assistant-page {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.assistant-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.assistant-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+  max-width: 52rem;
+  margin: 0 auto;
+}
+
+.assistant-scroll > .assistant-inner {
+  padding: 32px 32px 16px;
+}
+
+.assistant-welcome h1 {
+  margin: 0 0 8px;
+}
+
+.assistant-starters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: 8px;
+  margin: 20px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.assistant-starter {
+  width: 100%;
+  height: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+  text-align: left;
+}
+
+.assistant-starter:hover {
+  border-color: var(--color-cobalt);
+  color: var(--color-text);
+}
+
+.assistant-composer {
+  padding: 8px 32px 16px;
+}
+
+.assistant-composer .assistant-inner {
+  gap: 6px;
+}
+
+.assistant-clear {
+  align-self: flex-end;
+  padding: 0 6px;
+  border: none;
+  background: none;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
+.assistant-clear:hover {
+  color: var(--color-text);
+  text-decoration: underline;
+}
+
+@media (max-width: 720px) {
+  .assistant-scroll > .assistant-inner {
+    padding: 20px 16px 12px;
+  }
+
+  .assistant-composer {
+    padding: 8px 12px 12px;
+  }
+}
