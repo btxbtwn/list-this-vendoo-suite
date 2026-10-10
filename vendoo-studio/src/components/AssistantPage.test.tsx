@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import type { AssistantMessage } from "../api/assistant";
-import { ASSISTANT_STARTERS, AssistantPage, linkedListingId } from "./AssistantPage";
+import { ASSISTANT_STARTERS, AssistantPage, linkedListingId, liveParts } from "./AssistantPage";
 
 const { useQuery } = vi.hoisted(() => ({ useQuery: vi.fn() }));
 vi.mock("@tanstack/react-query", () => ({
@@ -50,5 +50,22 @@ describe("AssistantPage", () => {
     expect(linkedListingId("https://example.com/#listing-abc")).toBeNull();
     expect(linkedListingId("#listing-")).toBeNull();
     expect(linkedListingId(undefined)).toBeNull();
+  });
+
+  it("draws a question or an answer once when the saved conversation catches up mid-answer", () => {
+    const turn = (role: "user" | "assistant", text: string): AssistantMessage => ({ id: text, role, text, created_at: null });
+    const earlier = [turn("user", "Same question"), turn("assistant", "First answer")];
+    const live = { question: "Same question", asked: 2, answer: "Second", status: "" };
+    // Nothing saved yet: the page draws both itself.
+    expect(liveParts(live, earlier)).toEqual({ question: true, answer: true });
+    // The question arrived with a refresh, even though it reads the same as an earlier one.
+    expect(liveParts(live, [...earlier, turn("user", "Same question")])).toEqual({ question: false, answer: true });
+    // So did the finished answer.
+    expect(liveParts(live, [...earlier, turn("user", "Same question"), turn("assistant", "Second answer")]))
+      .toEqual({ question: false, answer: false });
+    // An answer picked back up never draws its question, which is already saved.
+    const resumed = { ...live, question: null };
+    expect(liveParts(resumed, [...earlier, turn("user", "Same question")])).toEqual({ question: false, answer: true });
+    expect(liveParts(resumed, earlier)).toEqual({ question: false, answer: false });
   });
 });

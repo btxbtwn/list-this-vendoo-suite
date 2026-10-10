@@ -46,7 +46,7 @@ import type {
 } from "./types";
 import { readSse } from "./sse";
 import type { AdSpendEntry, AdSpendInput } from "./adSpend";
-import type { AssistantMessage, AssistantStreamHandlers } from "./assistant";
+import { AssistantRefused, type AssistantMessage, type AssistantStreamHandlers } from "./assistant";
 import type { SaleCalendarData, SaleEventStatus, SalePlan, SaleRecord } from "./saleCalendar";
 
 const BASE = "/api";
@@ -159,6 +159,33 @@ export interface BrowserInputEvent {
   text?: string;
 }
 
+async function followAssistant(
+  path: string,
+  body: string | undefined,
+  handlers: AssistantStreamHandlers,
+  signal?: AbortSignal,
+): Promise<{ error: string }> {
+  const res = await fetch(`${BASE}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
+    body,
+    cache: "no-store",
+    signal,
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new AssistantRefused(errorMessage(detail, `Request failed: ${res.status}`));
+  }
+  let error = "";
+  await readSse(res, (event, data) => {
+    if (event === "message") handlers.onText(data);
+    else if (event === "status") handlers.onStatus(data);
+    else if (event === "thinking") handlers.onStatus("Thinking…");
+    else if (event === "error") error = data;
+  });
+  return { error };
+}
+
 export const api = {
   backups: {
     list: () => request<BackupsStatus>("/backups"),
@@ -205,28 +232,18 @@ export const api = {
     /** What the seller told the assistant about how they run the shop. */
     note: () => request<{ note: string }>("/assistant/note"),
     saveNote: (note: string) => request<{ note: string }>("/assistant/note", { method: "PUT", body: JSON.stringify({ note }) }),
-    /** Stream an answer; the question and what was answered are saved server-side. */
-    ask: async (text: string, handlers: AssistantStreamHandlers, signal?: AbortSignal): Promise<void> => {
-      const res = await fetch(`${BASE}/assistant/messages`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
-        body: JSON.stringify({ text }),
-        cache: "no-store",
-        signal,
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({ detail: res.statusText }));
-        throw new Error(errorMessage(body, `Request failed: ${res.status}`));
-      }
-      let failure = "";
-      await readSse(res, (event, data) => {
-        if (event === "message") handlers.onText(data);
-        else if (event === "status") handlers.onStatus(data);
-        else if (event === "thinking") handlers.onStatus("Thinking…");
-        else if (event === "error") failure = data;
-      });
-      if (failure) throw new Error(failure);
-    },
+    /**
+     * Ask, and follow the answer. Studio keeps writing it if this connection
+     * drops; `resume` picks it back up. Resolves with the assistant's own
+     * error, if it reported one.
+     */
+    ask: (text: string, handlers: AssistantStreamHandlers, signal?: AbortSignal) =>
+      followAssistant("/assistant/messages", JSON.stringify({ text }), handlers, signal),
+    /** Follow the answer in progress from its start; ends at once when there is none. */
+    resume: (handlers: AssistantStreamHandlers, signal?: AbortSignal) =>
+      followAssistant("/assistant/messages/resume", undefined, handlers, signal),
+    /** Stop the answer in progress; what it had written is kept. */
+    stop: () => request<{ ok: boolean }>("/assistant/messages/stop", { method: "POST" }),
   },
   adSpend: {
     list: () => request<AdSpendEntry[]>("/analytics/ads"),

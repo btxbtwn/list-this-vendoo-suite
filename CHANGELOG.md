@@ -6,6 +6,12 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.226 — 2026-10-10
+
+- The Assistant no longer fails with "Load failed" when your phone locks, you switch apps, or the connection drops while it is answering. Studio keeps writing the answer on its own, and the page reconnects and picks it up, including after you leave the Assistant and come back.
+- Your question no longer shows twice while the Assistant is answering.
+- Stop now stops the answer in Studio and keeps what was written so far.
+
 ## 0.1.225 — 2026-10-10
 
 - The Assistant now knows more about each listing: its size, condition, colour, labels, SKU and which marketplaces it is listed on, so you can ask things like "which sizes sell fastest?" or "what is only on eBay?".
