@@ -1,9 +1,10 @@
 ---
 name: box-scout
-description: Use when the user wants to know which wholesale clothing boxes, lots or bales to buy on raghouse.com or thriftvintagefashion.com: trending themes, a decent piece count and cost per piece, expected profit, with shipping estimated to New Orleans, LA 70115.
+description: Use when the user wants to know which wholesale clothing boxes, lots or bales to buy on raghouse.com, thriftvintagefashion.com or papercranewholesale.com: trending themes, a decent piece count and cost per piece, expected profit, with shipping estimated to New Orleans, LA 70115.
 triggers:
   - "raghouse"
   - "thrift vintage fashion"
+  - "papercrane"
   - "what boxes should i buy"
   - "find boxes to buy"
   - "wholesale lots"
@@ -12,11 +13,11 @@ triggers:
 # Box Scout
 
 ## Purpose
-Decide which wholesale clothing lots to buy. Crawl Raghouse (Phoenix, AZ 85043) and Thrift Vintage Fashion (Hialeah, FL 33016), estimate what each lot costs landed in New Orleans (70115), price what its pieces resell for, and return a buy list within a budget with a cart link per store.
+Decide which wholesale clothing lots to buy. Crawl Raghouse (Phoenix, AZ 85043), Thrift Vintage Fashion (Hialeah, FL 33016) and PaperCrane (a marketplace of vetted US sellers), estimate what each lot costs landed in New Orleans (70115), price what its pieces resell for, and return a buy list within a budget with a cart link per store.
 
 Studio's **Sourcing** page runs this same script on a timer and keeps the buy list ready. Use this skill when working outside Studio or when the seller asks in chat.
 
-Both stores are Shopify shops, so their public `/products.json` feeds list every lot with its price, stock and shipping weight without logging in.
+Raghouse and TVF are Shopify shops, so their public `/products.json` feeds list every lot with its price, stock and shipping weight without logging in. PaperCrane is a Next.js marketplace: its home page is rendered from a server-component payload (`GET / ` with an `RSC: 1` header) that carries every active lot in full, and `GET /sellers` carries a lighter card per seller's lot; the scout reads both and merges by lot id.
 
 ## Parameters
 
@@ -34,6 +35,7 @@ Both stores are Shopify shops, so their public `/products.json` feeds list every
 ## How the stores differ
 - **Raghouse** sells unsorted boxes of 20–230 pieces, titled `... 61 pcs`, dated by tag. Its "Recycle" and "Recycle & Good" boxes need TLC and are never scouted. It lands at roughly $1–3 per usable piece; shipping is often more than the box.
 - **Thrift Vintage Fashion** sells sorted 10–40 piece packs, variants graded A/B/C, bales by the pound (25–200 lb) and brand mixes sold by weight. Its A/B, B, B/C and C grades carry defects and are never scouted. It costs more per piece and states its own "Estimated Resale Value" in each description; treat that as the seller's claim, not evidence. It ships free on orders over $200.
+- **PaperCrane** is a marketplace: each lot is one seller's, bought whole from its page after signing in (no cart link), with an exact piece count, the state it ships from, and often a declared weight and box. Sellers grade Cream (A, 5% tolerance for unsellable pieces) or Standard (B, 10%); Buyer Protection refunds half the value of pieces beyond the tolerance. Mixed/As-Is (C) lots, footwear and accessories are never scouted; ungraded lots count as plain. Shipping is either included in the price or charged at checkout for the buyer's address; the scout estimates it as UPS Ground from the seller's state (`STATE_ZIP3`) and adds card processing, which PaperCrane itemises but does not publish (Stripe's standard 2.9% + $0.30 is assumed; see `shipping.json`). Lots run $60–$1,000 and $3–$20 a piece. Sold lots are not in the feed, so there is no sell-out signal; every PaperCrane lot gets average demand.
 
 ## Workflow
 
@@ -95,7 +97,8 @@ Give the buy list: per store, the lots with pieces, landed cost, resale per piec
 
 | Error | Cause | Resolution |
 |-------|-------|------------|
-| HTTP 403/429 or a challenge page | The store is blocking the crawl | Report it and use the other store. Do not retry in a loop. |
+| HTTP 403/429 or a challenge page | The store is blocking the crawl | Report it and use the other stores. Do not retry in a loop. |
+| PaperCrane returns no lots | The home page payload changed shape (lots are found by their `weightOz` and `moqCount` keys) | Report it; check `fetch_papercrane` against the live payload. |
 | Empty buy list | No priced lot clears the ROI bar within budget | Say so; list the best candidates and what their ROI would be. |
 | Lot missing | Sold out, Raghouse Recycle or TVF A/B, B, B/C or C grade, no piece count or weight, under 10 pieces, or over 150 lb | Mention it if the seller asked about it by name. |
 | Estimates far from real quotes | Discounted carrier rates or a stale fuel surcharge | Calibrate `ship_factor` and update the fuel surcharge. |
@@ -108,6 +111,7 @@ Give the buy list: per store, the lots with pieces, landed cost, resale per piec
 - [eBay selling fees](https://www.ebay.com/help/selling/fees-credits-invoices/selling-fees?id=4822) and [Depop shop guidance](https://www.depop.com/blog/grow-your-shop/): costs and competition differ by marketplace. Use an effective allowance and actual operating costs rather than asserting one universal fee rate.
 - [Raghouse FAQ](https://raghouse.com/pages/faq): Recycle clothing may have tears, stains or missing buttons; purchases are final. That is why Recycle boxes are skipped.
 - [TVF FAQ](https://thriftvintagefashion.com/pages/faqs-tvf): grade B can have defects; C suits rework; clothing arrives unlaundered; subjective returns are not accepted. That is why only plain and A-grade lots are scouted. Supplier estimated resale values are claims, not completed-sale evidence.
+- [PaperCrane Buyer Protection](https://www.papercranewholesale.com/buyer-protection) and [Shipping & Returns](https://www.papercranewholesale.com/shipping-returns): Cream (A) carries a 5% and Standard (B) a 10% tolerance for unsellable pieces, refunded at half value beyond that; Mixed/As-Is (C) condition is not covered; every seller ships from inside the USA with tracking, payment is held until the first carrier scan, and lots that are not as described can be reported within 5 days. [Fees & payouts](https://www.papercranewholesale.com/fees): buyers pay the lot, shipping when not included, and card processing as its own line.
 - [ThredUp 2026 Resale Report](https://www.thredup.com/resale): broad market trends provide research context. Aggregate resale growth does not establish demand for an individual lot, garment or brand.
 
 The sample floor, seven-day cache, $2 operating allowance and half-sales sensitivity test are product safeguards, not marketplace promises. Adjust planning costs to the seller’s actual operation; no public trend report can make wholesale resale certain.

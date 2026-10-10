@@ -2,7 +2,7 @@ import type { SourceBox, SourceBoxInput, SourcingLot } from "../api/types";
 
 export const BOXES_QUERY_KEY = ["boxes"];
 
-const STORE_NAMES: Record<string, string> = { raghouse: "Raghouse", tvf: "Thrift Vintage Fashion" };
+const STORE_NAMES: Record<string, string> = { raghouse: "Raghouse", tvf: "Thrift Vintage Fashion", papercrane: "PaperCrane" };
 
 /** A recently recorded box with the same link counts as already bought. */
 const RECENT_DAYS = 14;

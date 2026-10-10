@@ -333,7 +333,7 @@ function Choices({ snapshot, choice, onChoose }: {
         about {formatMoney(Math.round(snapshot.vip_upside.extra_profit))} more estimated profit. Turn on “I'm a Raghouse VIP” above once you join.
       </p> : null}
       <div className="sourcing-choices">
-        {["all", "raghouse", "tvf"].map((key) => {
+        {["all", ...Object.keys(snapshot.stores)].map((key) => {
           const plan = key === "all" ? snapshot.buy_list : snapshot.store_buy_lists[key];
           const count = plan.carts.reduce((sum, cart) => sum + cart.lots.length, 0);
           const metrics = planMetrics(plan);
@@ -460,9 +460,11 @@ function Cart({ cart, step, of, updating, onOpenListing }: {
         </p>
       ) : null}
       {updating ? <button className="btn btn-primary sourcing-cart-button" disabled>Updating cart…</button> : <a className="btn btn-primary sourcing-cart-button" href={cart.cart_url} target="_blank" rel="noopener noreferrer">
-        Open {cart.name} cart
+        {cart.cart_fills ? `Open ${cart.name} cart` : `Open on ${cart.name}`}
       </a>}
-      <p className="sourcing-hint sourcing-cart-note">The cart opens with these boxes already in it. Check it, then pay.</p>
+      <p className="sourcing-hint sourcing-cart-note">{cart.cart_fills
+        ? "The cart opens with these boxes already in it. Check it, then pay."
+        : `Each ${cart.name} lot is bought from its own page after signing in; shipping and card processing are itemised at checkout. Open each box above.`}</p>
     </section>
   );
 }
@@ -636,7 +638,7 @@ function HowItWorks({ snapshot }: { snapshot: SourcingSnapshot }) {
     <details className="sourcing-more">
       <summary>How Studio picks boxes</summary>
       <ul className="sourcing-how">
-        <li>Every {REFRESH_HOURS} hours it reads every box both stores list. Raghouse Recycle boxes and Thrift Vintage Fashion A/B, B, B/C and C grades are never considered.</li>
+        <li>Every {REFRESH_HOURS} hours it reads every box Raghouse, Thrift Vintage Fashion and PaperCrane list. Raghouse Recycle boxes, Thrift Vintage Fashion A/B, B, B/C and C grades and PaperCrane Mixed/As-Is (C) lots are never considered; PaperCrane Cream (A) and Standard (B) lots are covered by its Buyer Protection beyond a 5% or 10% tolerance for unsellable pieces.</li>
         <li>
           It groups boxes by the kind of piece inside (“vintage graphic t-shirts”, “hawaiian shirts”) and prices each kind from your own recorded sales of that kind
           plus what your AI finds sold on eBay, Poshmark, Depop and Mercari, rechecked weekly. It requires dated sold examples and computes their median, capped by comparable asking prices when enough are available.
@@ -648,8 +650,9 @@ function HowItWorks({ snapshot }: { snapshot: SourcingSnapshot }) {
         <li>Each recommended box must meet your ROI target and avoid a loss when only half your planned pieces sell, at the lower of its lowest retained sold price and resale estimate, after operating costs on those pieces.</li>
         <li>It prefers researched selling-window matches among qualifying boxes, then incremental return, one box per theme, and checks the whole cart’s shipping. It also tests pairs that unlock free shipping. This is a greedy selection; it doesn’t guarantee the best possible combination.</li>
         <li>
-          Raghouse shipping is FedEx Ground from Phoenix to {snapshot.destination_zip} and Thrift Vintage Fashion is UPS Ground from Hialeah, each
-          scaled to what the store charged your recorded orders ({Object.entries(snapshot.shipping.factors).map(([store, factor]) => `${storeName(store)} ${Math.round(factor * 100)}%`).join(", ")} of list).
+          Raghouse shipping is FedEx Ground from Phoenix to {snapshot.destination_zip}, Thrift Vintage Fashion is UPS Ground from Hialeah, and PaperCrane is UPS Ground from each seller’s state
+          ({snapshot.stores.papercrane?.origins ?? 0} states this check) plus card processing at Stripe’s standard rate, which PaperCrane does not publish; each store is
+          scaled to what it charged your recorded orders ({Object.entries(snapshot.shipping.factors).map(([store, factor]) => `${storeName(store)} ${Math.round(factor * 100)}%`).join(", ")} of list).
           {" "}{Object.keys(snapshot.shipping.factors).map((store) => shippingNote(storeName(store), snapshot.shipping.calibration[store])).filter(Boolean).join(" ")}
           {" "}Correct a box’s shipping under Boxes you bought once the store charges it, and the estimates follow.
         </li>

@@ -567,7 +567,8 @@ export interface SourcingEvidence {
 
 export interface SourcingLot {
   store: string;
-  variant_id: number;
+  /** Shopify variant number, or a marketplace lot id. */
+  variant_id: number | string;
   title: string;
   url: string;
   price: number;
@@ -581,6 +582,11 @@ export interface SourcingLot {
   listed: string | null;
   seller_resale: number | null;
   theme: string;
+  /** Marketplace lots: the seller, the state it ships from, and whether shipping is in the price. */
+  seller: string | null;
+  origin: string | null;
+  free_shipping: boolean;
+  checkout_fee: number;
   ship_est: number;
   /** The carrier's list rate before the store's discount; what a bought box records. */
   ship_list: number;
@@ -614,6 +620,8 @@ export interface SourcingCart {
   shipping: number;
   free_shipping: boolean;
   free_shipping_over: number | null;
+  /** Whether the link opens a cart with the boxes in it, or the first box's own page. */
+  cart_fills: boolean;
   cart_url: string;
   lots: SourcingLot[];
 }
@@ -650,7 +658,7 @@ export interface SourcingSnapshot {
   updated_at: string;
   destination_zip: string;
   preferences: Omit<SourcingPrefs, "recent_zips">;
-  stores: Record<string, { name: string; error: string | null; sellout: number | null; zone: number | null }>;
+  stores: Record<string, { name: string; error: string | null; sellout: number | null; zone: number | null; origins: number }>;
   research: boolean;
   priced_themes: number;
   shipping: {

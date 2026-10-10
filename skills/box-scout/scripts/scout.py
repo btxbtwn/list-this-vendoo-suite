@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
-"""Find the wholesale clothing boxes worth buying on raghouse.com and thriftvintagefashion.com.
+"""Find the wholesale clothing boxes worth buying on raghouse.com, thriftvintagefashion.com
+and papercranewholesale.com.
 
-Both stores are Shopify shops, so their public /products.json feeds list every lot
-with its price, stock and shipping weight. This script turns each in-stock lot into
-the same shape, estimates UPS Ground shipping to the destination in
-references/shipping.json, scores demand from what has sold out, and, given resale
-prices per theme, picks a buy list within a budget. Standard library only.
+Raghouse and TVF are Shopify shops, so their public /products.json feeds list every
+lot with its price, stock and shipping weight. PaperCrane is a marketplace of vetted
+US sellers whose home page carries every active lot with its grade, weight and the
+state it ships from. This script turns each in-stock lot into the same shape,
+estimates carrier shipping to the destination in references/shipping.json, scores
+demand from what has sold out, and, given resale prices per theme, picks a buy list
+within a budget. Standard library only.
 
     python3 scout.py --trend "carhartt,y2k,harley" --top 25
     python3 scout.py --resale resale.json --budget 300    # adds the buy list
@@ -38,9 +41,30 @@ ZONE_CHART_URL = (
 # military and territory ZIPs.
 OUTSIDE_48 = re.compile(r"^(?:00[6-9]|09\d|340|96[2-9]|99[5-9])")
 
+# `cart` is how a buy list is handed to the store: Shopify carts fill from a URL;
+# a marketplace lot is bought from its own page after signing in.
 STORES = {
-    "raghouse": {"name": "Raghouse", "url": "https://raghouse.com", "tz": "America/Phoenix"},
-    "tvf": {"name": "Thrift Vintage Fashion", "url": "https://thriftvintagefashion.com", "tz": "America/New_York"},
+    "raghouse": {"name": "Raghouse", "url": "https://raghouse.com", "tz": "America/Phoenix", "cart": "shopify"},
+    "tvf": {"name": "Thrift Vintage Fashion", "url": "https://thriftvintagefashion.com", "tz": "America/New_York",
+            "cart": "shopify"},
+    "papercrane": {"name": "PaperCrane", "url": "https://www.papercranewholesale.com", "tz": "America/Chicago",
+                   "cart": "listing"},
+}
+
+# PaperCrane lots ship from each seller's state. The USPS zone chart wants an
+# origin 3-digit ZIP, so each state is represented by the prefix of its largest
+# metro; zones are coarse enough that this is within a zone of any seller there.
+STATE_ZIP3 = {
+    "Alabama": "352", "Arizona": "850", "Arkansas": "722", "California": "900", "Colorado": "802",
+    "Connecticut": "061", "Delaware": "198", "District of Columbia": "200", "Florida": "331", "Georgia": "303",
+    "Idaho": "837", "Illinois": "606", "Indiana": "462", "Iowa": "503", "Kansas": "672", "Kentucky": "402",
+    "Louisiana": "701", "Maine": "041", "Maryland": "212", "Massachusetts": "021", "Michigan": "482",
+    "Minnesota": "554", "Mississippi": "392", "Missouri": "631", "Montana": "591", "Nebraska": "681",
+    "Nevada": "891", "New Hampshire": "031", "New Jersey": "071", "New Mexico": "871", "New York": "100",
+    "North Carolina": "282", "North Dakota": "581", "Ohio": "432", "Oklahoma": "731", "Oregon": "972",
+    "Pennsylvania": "191", "Rhode Island": "029", "South Carolina": "292", "South Dakota": "571",
+    "Tennessee": "372", "Texas": "752", "Utah": "841", "Vermont": "054", "Virginia": "232", "Washington": "981",
+    "West Virginia": "253", "Wisconsin": "532", "Wyoming": "820",
 }
 
 # Share of a lot that is resellable. TVF says a plain lot "may contain up to 15%
@@ -49,7 +73,8 @@ STORES = {
 # after unpacking a few.
 GRADE_YIELD = {
     "good": 0.90,
-    "a": 0.95,
+    "a": 0.95,  # TVF A grade and PaperCrane Cream (A): 5% tolerance for unsellable pieces
+    "standard": 0.90,  # PaperCrane Standard (B): 10% tolerance; Mixed/As-Is (C) is never scouted
 }
 
 # Pieces per pound, for lots sold by weight (TVF bales and "by LB" mixes).
@@ -72,6 +97,7 @@ UNIT_RE = re.compile(
 )
 LB_RE = re.compile(r"(\d+)\s*(?:lbs?|pounds?)\b", re.I)
 DATE_TAG_RE = re.compile(r"^(\d\d)-(\d\d)-(\d{4})$")
+DATE_RE = re.compile(r"^\d{4}-\d\d-\d\d$")
 TOKEN_RE = re.compile(r"[a-z0-9']+")
 # Raghouse "Recycle" lots need TLC, so they are never scouted. Titles misspell it
 # ("Recyle", "Recycle4") and put it anywhere ("Abbie Recycle Tees", "Recycle & Good").
@@ -187,6 +213,8 @@ def store_today(store: str) -> dt.date:
 
 
 def fetch_catalog(store: str) -> list[dict]:
+    if store == "papercrane":
+        return fetch_papercrane()
     products: list[dict] = []
     page = 1
     while True:
@@ -199,6 +227,52 @@ def fetch_catalog(store: str) -> list[dict]:
         products.extend(batch)
         page += 1
         time.sleep(1)
+
+
+def _rsc(path: str) -> str:
+    """A Next.js page as the server component payload the page is rendered from."""
+    url = f"{STORES['papercrane']['url']}{path}"
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "RSC": "1"})
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        return resp.read().decode("utf-8", "replace")
+
+
+def _rsc_objects(payload: str, key: str) -> list[dict]:
+    """Every JSON object in a server component payload that carries `key`."""
+    objects = []
+    for match in re.finditer(f'"{key}":', payload):
+        start, depth = match.start(), 0
+        while start >= 0:
+            if payload[start] == "}":
+                depth += 1
+            elif payload[start] == "{":
+                if depth == 0:
+                    break
+                depth -= 1
+            start -= 1
+        decoder = json.JSONDecoder()
+        try:
+            obj, _ = decoder.raw_decode(payload, start)
+        except (ValueError, TypeError):
+            continue
+        if isinstance(obj, dict):
+            objects.append(obj)
+    return objects
+
+
+def fetch_papercrane() -> list[dict]:
+    """Every active PaperCrane lot. The home page carries each lot in full (grade,
+    weight, box, ship-from state, posting date); the sellers page carries a lighter
+    card for each seller's lots and catches the few the home page leaves out."""
+    lots: dict[str, dict] = {}
+    for lot in _rsc_objects(_rsc("/"), "weightOz"):
+        if lot.get("id") and lot.get("moqCount") is not None:
+            lots[lot["id"]] = lot
+    time.sleep(1)
+    for lot in _rsc_objects(_rsc("/sellers"), "moqCount"):
+        if lot.get("id") and lot["id"] not in lots:
+            lots[lot["id"]] = lot
+    return list(lots.values())
 
 
 def terms(text: str) -> set[str]:
@@ -411,13 +485,70 @@ def tvf_lots(products: list[dict]) -> list[dict]:
     return lots
 
 
-ADAPTERS = {"raghouse": raghouse_lots, "tvf": tvf_lots}
+PAPERCRANE_GRADES = {"a": "a", "b": "standard", None: "good"}  # "c" (Mixed / As-Is) is left out
+
+
+def papercrane_lots(products: list[dict]) -> list[dict]:
+    lots = []
+    for p in products:
+        pcs = int(p.get("moqCount") or 0)
+        grade = PAPERCRANE_GRADES.get(p.get("conditionGrade"))
+        if p.get("status") != "active" or pcs <= 0 or grade is None or not p.get("state"):
+            continue
+        if p.get("category") in {"Footwear", "Accessories"}:
+            continue
+        kind = garment(p["title"])
+        if p.get("weightOz"):
+            lbs, lbs_estimated = float(p["weightOz"]) / 16, False
+        else:
+            lbs, lbs_estimated = pcs / PCS_PER_LB[kind] + PACKAGING_LB, True
+        posted = str(p.get("postedAt") or "")[:10]
+        lots.append({
+            "store": "papercrane",
+            "variant_id": p["id"],
+            "title": p["title"],
+            "url": f"{STORES['papercrane']['url']}/shop/{p.get('slug') or p['id']}",
+            "available": True,
+            "price": round(int(p.get("priceCents") or 0) / 100, 2),
+            "compare_at": None,
+            "pcs": pcs,
+            "pcs_estimated": p.get("accuracy") not in (None, "exact"),
+            "grade": grade,
+            "lbs": lbs,
+            "lbs_estimated": lbs_estimated,
+            "vip": False,
+            "listed": dt.date.fromisoformat(posted) if DATE_RE.match(posted) else None,
+            "seller_resale": None,
+            "theme": theme(p["title"]),
+            "seller": p.get("seller"),
+            "origin": p["state"],
+            # Shipping is either in the lot price or charged at checkout for the buyer's address.
+            "free_shipping": not p.get("shipExact"),
+        })
+    return lots
+
+
+ADAPTERS = {"raghouse": raghouse_lots, "tvf": tvf_lots, "papercrane": papercrane_lots}
+
+
+def origin_zip3s(store: str, products: list[dict], cfg: dict) -> dict[str, str]:
+    """Where a store's lots ship from, as {label: 3-digit ZIP}. A warehouse store
+    has one origin, labelled ""; a marketplace has one per seller state."""
+    if store == "papercrane":
+        states = {p["state"] for p in products if p.get("state") in STATE_ZIP3}
+        return {state: STATE_ZIP3[state] for state in sorted(states)}
+    return {"": cfg["stores"][store]["origin_zip3"]}
+
+
+def lot_zone(zones: dict, store: str, lot: dict) -> int | None:
+    zone = zones.get(store)
+    return zone.get(lot.get("origin")) if isinstance(zone, dict) else zone
 
 
 # --- Scoring --------------------------------------------------------------------------
 
 
-def demand_rates(lots: list[dict], days: int, today: dt.date) -> tuple[float, dict[str, float]]:
+def demand_rates(lots: list[dict], days: int, today: dt.date) -> tuple[float | None, dict[str, float]]:
     """Sell-out rate per title term, smoothed toward the store-wide rate.
 
     Raghouse lots carry a listing date, so only the last `days` days count; TVF
@@ -435,7 +566,10 @@ def demand_rates(lots: list[dict], days: int, today: dt.date) -> tuple[float, di
         for w in terms(lot["title"]):
             counts[w][0] += 1
             counts[w][1] += gone
-    baseline = sold / total if total else 0.2
+    if not sold:
+        # A feed that never shows a sold-out lot (PaperCrane) carries no sell-out signal.
+        return None, {}
+    baseline = sold / total
     prior = 10
     rates = {w: (s + prior * baseline) / (n + prior) for w, (n, s) in counts.items() if n >= 3}
     return baseline, rates
@@ -444,7 +578,7 @@ def demand_rates(lots: list[dict], days: int, today: dt.date) -> tuple[float, di
 def score_lots(
     catalogs: dict[str, list[dict]],
     cfg: dict,
-    zones: dict[str, int],
+    zones: dict[str, int | dict[str, int]],
     f: Filters,
     resale: dict[str, float] | None = None,
     resale_factor: dict[str, float] | None = None,
@@ -453,7 +587,8 @@ def score_lots(
     """Return {store: baseline sell-out rate} and every in-stock lot passing `f`, ranked.
 
     `catalogs` maps a store id to its raw products and `zones` each store to its
-    shipping zone for the destination. `resale` maps a theme to the typical sold
+    shipping zone for the destination, or to {state: zone} for a marketplace whose
+    lots ship from each seller's state. `resale` maps a theme to the typical sold
     price of one piece; lots with a price get an expected profit and ROI.
     `resale_factor` scales those prices per store, for a seller whose own sales
     from that store's boxes run below the estimates. Stronger past sales never
@@ -475,12 +610,15 @@ def score_lots(
                 continue
             if f.max_price and lot["price"] > f.max_price:
                 continue
-            ship = ship_estimate(lot["lbs"], cfg, store, zones[store])
+            zone = lot_zone(zones, store, lot)
+            ship = ship_estimate(lot["lbs"], cfg, store, zone) if zone is not None else None
             if ship is None:
                 continue
             threshold = cfg["stores"][store]["free_shipping_over"]
-            if threshold is not None and lot["price"] >= threshold:
+            if lot.get("free_shipping") or (threshold is not None and lot["price"] >= threshold):
                 ship = 0.0
+            store_cfg = cfg["stores"][store]
+            checkout_fee = round(lot["price"] * store_cfg.get("card_fee_pct", 0) / 100 + store_cfg.get("card_fee_fixed", 0), 2)
             known = [rates[w] for w in terms(lot["title"]) if w in rates]
             demand = (sum(known) / len(known) / baseline) if known and baseline else 1.0
             hits = [t for t in f.trend if re.search(rf"\b{re.escape(t)}\b", lot["title"], re.I)]
@@ -489,7 +627,8 @@ def score_lots(
                 **lot,
                 "listed": lot["listed"].isoformat() if lot["listed"] else None,
                 "lbs": round(lot["lbs"], 1),
-                "ship_list": ship_list_rate(lot["lbs"], cfg, store, zones[store]),
+                "ship_list": ship_list_rate(lot["lbs"], cfg, store, zone),
+                "checkout_fee": checkout_fee,
                 "usable_pcs": round(usable, 1),
                 "demand": round(demand, 2),
                 "trend_hits": hits,
@@ -521,7 +660,7 @@ def price_lot(
     cost_per_piece: float = OPERATING_COST_PER_PIECE,
 ) -> dict:
     """Fill in landed cost and, when the theme has a resale price, profit and ROI."""
-    landed = row["price"] + ship
+    landed = row["price"] + ship + row.get("checkout_fee", 0)
     operating_cost = row["usable_pcs"] * cost_per_piece
     row.update({
         "ship_est": round(ship, 2),
@@ -653,6 +792,7 @@ def buy_list(
             for p in mine:
                 price_lot(p, 0.0, p["resale_per_pc"], sell_through=sell_through, fees=fees,
                           cost_per_piece=cost_per_piece)
+        fills = STORES[store]["cart"] == "shopify"
         carts.append({
             "store": store,
             "name": STORES[store]["name"],
@@ -660,7 +800,10 @@ def buy_list(
             "shipping": round(sum(p["ship_est"] for p in mine), 2),
             "free_shipping": free,
             "free_shipping_over": threshold,
-            "cart_url": f"{STORES[store]['url']}/cart/" + ",".join(f"{p['variant_id']}:1" for p in mine),
+            # A Shopify cart opens with the picks in it; a marketplace lot is bought from its page.
+            "cart_fills": fills,
+            "cart_url": (f"{STORES[store]['url']}/cart/" + ",".join(f"{p['variant_id']}:1" for p in mine)) if fills
+                        else mine[0]["url"],
             "lots": mine,
         })
     total = sum(p["landed"] for c in carts for p in c["lots"])
@@ -695,7 +838,8 @@ def buy_list(
 
 def print_table(rows, baselines, dest_zip, top):
     print(f"# Wholesale boxes to {dest_zip}\n")
-    rates = ", ".join(f"{STORES[s]['name']} {b:.0%}" for s, b in baselines.items())
+    rates = ", ".join(f"{STORES[s]['name']} {b:.0%}" if b is not None else f"{STORES[s]['name']} unknown"
+                      for s, b in baselines.items())
     print(f"Sell-out rates: {rates}.\n")
     print("| # | Store | Lot | Pcs | Landed | $/usable pc | Resale/pc | Profit | ROI | Demand | Trend |")
     print("|---|-------|-----|-----|--------|-------------|-----------|--------|-----|--------|-------|")
@@ -725,7 +869,7 @@ def print_buy_list(plan):
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--stores", default="raghouse,tvf", help="comma-separated: raghouse, tvf")
+    ap.add_argument("--stores", default="raghouse,tvf,papercrane", help="comma-separated: raghouse, tvf, papercrane")
     ap.add_argument("--zip", default="70115", help="5-digit ZIP the boxes ship to")
     ap.add_argument("--trend", default="", help="comma-separated resale trend terms to boost")
     ap.add_argument("--min-pcs", type=int, default=10)
@@ -741,7 +885,7 @@ def main() -> int:
     ap.add_argument("--themes", action="store_true", help="print the themes that most need a resale price")
     ap.add_argument("--top", type=int, default=25)
     ap.add_argument("--json", action="store_true", help="print every ranked lot as JSON")
-    ap.add_argument("--catalog", type=Path, help='read saved catalogs {"raghouse": [...], "tvf": [...]}')
+    ap.add_argument("--catalog", type=Path, help='read saved catalogs {"raghouse": [...], "tvf": [...], "papercrane": [...]}')
     args = ap.parse_args()
     if not 0 < args.sell_through <= 1 or not 0 <= args.fees < 1:
         ap.error("--sell-through must be above 0 and at most 1; --fees must be at least 0 and below 1")
@@ -754,16 +898,22 @@ def main() -> int:
     if not valid_zip(args.zip):
         ap.error("--zip takes a 5-digit ZIP code")
     stores = [s for s in parse_terms(args.stores) if s in STORES]
-    zones = {}
-    for store in stores:
-        zones[store] = zone_for(fetch_zone_chart(cfg["stores"][store]["origin_zip3"]), args.zip)
-        if zones[store] is None:
-            ap.error(f"{args.zip} is outside the 48 contiguous states the rate table covers")
     if args.catalog:
         saved = json.loads(args.catalog.read_text())
         catalogs = {s: saved[s] for s in stores if s in saved}
     else:
         catalogs = {s: fetch_catalog(s) for s in stores}
+    zones: dict = {}
+    charts: dict[str, dict] = {}
+    for store, products in catalogs.items():
+        by_origin = {}
+        for label, zip3 in origin_zip3s(store, products, cfg).items():
+            chart = charts.setdefault(zip3, fetch_zone_chart(zip3))
+            zone = zone_for(chart, args.zip)
+            if zone is None:
+                ap.error(f"{args.zip} is outside the 48 contiguous states the rate table covers")
+            by_origin[label] = zone
+        zones[store] = by_origin[""] if list(by_origin) == [""] else by_origin
     filters = Filters(
         trend=parse_terms(args.trend), min_pcs=args.min_pcs, max_price=args.max_price, include_vip=args.vip,
         sell_through=args.sell_through, fees=args.fees, cost_per_piece=args.cost_per_piece,

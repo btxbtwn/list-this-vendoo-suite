@@ -20,9 +20,17 @@
       "origin_zip3": "330",
       "free_shipping_over": 200,
       "ship_factor": 1.0
+    },
+    "papercrane": {
+      "origin": "each seller's state (STATE_ZIP3 in scout.py)",
+      "free_shipping_over": null,
+      "ship_factor": 1.0,
+      "card_fee_pct": 2.9,
+      "card_fee_fixed": 0.3,
+      "card_fee_note": "PaperCrane itemises card processing at checkout and does not publish the rate; Stripe's standard 2.9% + $0.30 is assumed until a checkout shows it."
     }
   },
-  "ship_factor_note": "Each store uses its own carrier table. Set ship_factor to (real checkout quote / this estimate). Raghouse is FedEx Ground: order #83897 on 2026-09-27, Light Jackets Unsorted 26 pcs, 29 lb Phoenix to 70115, charged $33.95 against a $65.96 FedEx list estimate (zone 6 rate $44.68 + $6.45 residential, then 29% fuel), so ship_factor is 0.5147. TVF is still UPS list price, ship_factor 1.0.",
+  "ship_factor_note": "Each store uses its own carrier table. Set ship_factor to (real checkout quote / this estimate). Raghouse is FedEx Ground: order #83897 on 2026-09-27, Light Jackets Unsorted 26 pcs, 29 lb Phoenix to 70115, charged $33.95 against a $65.96 FedEx list estimate (zone 6 rate $44.68 + $6.45 residential, then 29% fuel), so ship_factor is 0.5147. TVF is still UPS list price, ship_factor 1.0. PaperCrane labels are bought through the platform on USPS, UPS or FedEx and charged to the buyer at checkout; it is estimated as UPS list from the seller's state, ship_factor 1.0, until recorded orders set it.",
   "fedex_rates_source": "FedEx Standard List Rates, FedEx Ground and FedEx Home Delivery, effective January 5, 2026 (https://www.fedex.com/content/dam/fedex/us-united-states/services/FedEx_Standard_List_Rates_2026.xlsx)",
   "fedex_ground_by_zone": {
     "2": [11.99, 12.78, 13.3, 13.69, 14.06, 14.17, 14.97, 15.4, 15.64, 15.85, 16.92, 17.2, 17.21, 17.92, 17.93, 18.39, 18.52, 18.71, 19.22, 19.36, 19.88, 19.93, 20.2, 20.75, 20.82, 21.62, 22.22, 22.74, 22.79, 23.02, 24.01, 24.02, 24.16, 24.3, 24.76, 25.12, 25.5, 25.9, 26.77, 26.79, 27.39, 27.4, 27.93, 28.3, 28.36, 29.09, 29.1, 29.12, 29.13, 29.14, 29.34, 29.35, 29.36, 29.37, 29.38, 29.4, 29.93, 29.95, 29.97, 30.79, 30.8, 32.07, 32.08, 32.93, 33.29, 33.46, 33.47, 33.86, 34.56, 34.72, 34.74, 35.73, 35.96, 36.91, 38.28, 41.23, 42.85, 42.89, 44.82, 46.04, 47.17, 48.7, 48.71, 50.65, 52.0, 53.9, 55.01, 57.29, 59.86, 63.52, 63.53, 64.95, 65.78, 66.12, 67.02, 69.17, 71.43, 72.39, 73.38, 74.61, 75.13, 75.85, 76.85, 76.86, 79.61, 80.16, 80.58, 81.73, 84.2, 85.65, 85.66, 86.67, 86.68, 87.59, 90.25, 90.26, 90.35, 91.32, 94.03, 96.59, 96.6, 96.61, 97.48, 97.49, 98.42, 100.39, 100.4, 101.34, 103.27, 103.67, 104.24, 105.34, 106.23, 108.22, 109.04, 109.84, 109.86, 111.9, 113.98, 114.93, 114.94, 116.41, 116.42, 119.71, 119.72, 119.73, 121.18, 121.19, 121.2, 121.21],

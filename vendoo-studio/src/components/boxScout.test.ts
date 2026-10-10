@@ -33,6 +33,10 @@ function lot(overrides: Partial<SourcingLot> = {}): SourcingLot {
     listed: null,
     seller_resale: null,
     theme: "cartoon t-shirts",
+    seller: null,
+    origin: null,
+    free_shipping: false,
+    checkout_fee: 0,
     ship_est: 64,
     ship_list: 124.3,
     usable_pcs: 62.1,
@@ -68,6 +72,7 @@ function cart(overrides: Partial<SourcingCart> = {}): SourcingCart {
     shipping: 40,
     free_shipping: false,
     free_shipping_over: 200,
+    cart_fills: true,
     cart_url: "https://thriftvintagefashion.com/cart/1:1",
     lots: [],
     ...overrides,
@@ -168,6 +173,9 @@ describe("box wording", () => {
     expect(gradeLabel(lot())).toBe("Good");
     expect(gradeLabel(lot({ store: "tvf", grade: "bc" }))).toBe("B/C Grade");
     expect(gradeLabel(lot({ store: "tvf", grade: "good" }))).toBeNull();
+    expect(gradeLabel(lot({ store: "papercrane", grade: "standard" }))).toBe("Standard (B)");
+    expect(gradeLabel(lot({ store: "papercrane", grade: "a" }))).toBe("Cream (A)");
+    expect(gradeLabel(lot({ store: "papercrane", grade: "good" }))).toBeNull();
   });
 
   it("explains a box in one line", () => {
@@ -178,6 +186,9 @@ describe("box wording", () => {
     );
     expect(lotReason(lot({ store: "tvf", pcs: 10, resale_per_pc: null }), true)).toBe(
       "Thrift Vintage Fashion · 10 Pieces",
+    );
+    expect(lotReason(lot({ store: "papercrane", grade: "standard", seller: "ed2k", origin: "Texas", free_shipping: true }), true)).toBe(
+      "PaperCrane · 69 pcs · Standard (B) · estimated resale $14 each · @ed2k · ships from Texas, included",
     );
   });
 });
