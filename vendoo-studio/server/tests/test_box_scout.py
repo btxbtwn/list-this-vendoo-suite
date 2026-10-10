@@ -825,6 +825,58 @@ class ResearchEvidenceTest(unittest.TestCase):
                 item["comps"][0].update(changes)
                 self.assertEqual(self._clean(item), {})
 
+    def test_a_sale_must_be_one_used_piece_of_the_themes_garment(self):
+        mismatch = box_scout.scout().sale_mismatch
+        for theme, title, reason in (
+            ("carhartt t-shirts", "Carhartt K87 Pocket T-Shirt Mens Large", None),
+            ("carhartt t-shirts", "Carhartt Detroit Jacket Mens XL", "garment"),
+            ("harley davidson t-shirts", "Vintage Harley Davidson Shirt XL", None),  # titles call tees shirts
+            ("hoodies", "Nike Hoodie Sweatshirt", None),
+            ("vintage sweatshirts", "Ugly Christmas Sweater", "garment"),
+            ("sports t-shirts", "Dallas Cowboys Jersey", "garment"),
+            ("levis shorts", "Levis 501 Jeans", "garment"),
+            ("denim jackets", "Levi's Denim Trucker", None),  # denim describes, it is not jeans
+            ("pants", "Y2K Crop Hoodie", "garment"),
+            ("vintage t-shirts", "1998 Harley Davidson Sturgis XL", None),  # names no garment
+            ("mixed clothing", "Zara Dress", None),  # the theme names no garment
+            ("cartoon t-shirts", "Lot of 3 Looney Tunes Tees", "bundle"),
+            ("cartoon t-shirts", "Vintage Lot 29 Looney Tunes Taz Shirt", None),  # a label, not a lot
+            ("skirts", "2 Piece Skirt Set", "bundle"),
+            ("cartoon t-shirts", "Taz Tee NWT", "unworn"),
+        ):
+            with self.subTest(theme=theme, title=title):
+                self.assertEqual(mismatch(theme, title), reason)
+        self.assertEqual(mismatch("cartoon t-shirts", "Taz Tee", "Condition: New with tags"), "unworn")
+
+    def test_sales_that_do_not_fit_the_theme_cannot_price_it(self):
+        for title in ("Looney Tunes Taz Varsity Jacket", "Lot of 3 Looney Tunes Tees", "Taz T-Shirt NWT"):
+            with self.subTest(title=title):
+                item = _price_evidence("cartoon t-shirts", 20)
+                item["comps"][0]["title"] = title
+                self.assertEqual(self._clean(item), {})
+        item = _price_evidence("cartoon t-shirts", 20)
+        item["comps"].append({**item["comps"][0], "url": "https://www.ebay.com/itm/9",
+                              "title": "Looney Tunes Taz Varsity Jacket", "snippet": "Sold for US $90.00"})
+        cleaned = self._clean(item)["cartoon t-shirts"]
+        self.assertEqual(cleaned["high"], 20)
+        self.assertEqual(len(cleaned["comps"]), 3)
+
+    def test_asking_prices_that_do_not_fit_the_theme_cannot_cap_it(self):
+        item = _price_evidence("cartoon t-shirts", 30)
+        item["active"] = [{"url": f"https://www.ebay.com/itm/{100 + i}", "title": "Cartoon tee bundle",
+                           "currency": "USD", "snippet": "Buy it now US $10"} for i in range(3)]
+        cleaned = self._clean(item)["cartoon t-shirts"]
+        self.assertEqual(cleaned["per_piece"], 30)
+        self.assertEqual(cleaned["active"], [])
+
+    def test_cached_sales_are_rechecked_against_the_theme(self):
+        cleaned = self._clean(_price_evidence("cartoon t-shirts", 30))["cartoon t-shirts"]
+        cleaned["comps"][0]["title"] = "Cartoon Hoodie"
+        fresh = box_scout._fresh_research({"resale": {"cartoon t-shirts": {
+            **cleaned, "updated_at": self.now.isoformat(),
+        }}}, self.now, {})
+        self.assertEqual(fresh, {})
+
     def test_current_competition_caps_estimated_resale(self):
         item = _price_evidence("cartoon t-shirts", 30)
         item["active"] = [{"url": f"https://www.ebay.com/itm/{100 + i}", "title": "Cartoon tee",

@@ -183,6 +183,23 @@ THEME_GARMENTS: tuple[tuple[str, str], ...] = (
     (r"belts?|hats?|bags?|bandanas?|tablecloths?", "accessories"),
 )
 MIXED_GARMENT = "mixed clothing"
+# Garments a marketplace title uses interchangeably: a "Harley Shirt" is a t-shirt
+# and a "Hoodie Sweatshirt" a hoodie. Every other garment only stands in for itself.
+GARMENT_FAMILIES: tuple[set[str], ...] = (
+    {"t-shirts", "tops", "blouses", "shirts", "flannel shirts"},
+    {"hoodies", "sweatshirts"},
+    {"denim jackets", "jackets"},
+    {"jeans", "pants"},
+)
+# Words that name a garment in a lot title but only describe one in a listing's:
+# a "Denim Trucker" is a jacket and a "Crop Hoodie" is not pants.
+TITLE_MODIFIERS = {"denim", "crop", "crops", "flare", "flares", "cargo", "cargos", "minis"}
+# "Lot 29" is a clothing label, so a number after "lot" is not a bundle.
+BUNDLE_RE = re.compile(
+    r"\blot\b(?!\s*\d)|\bbundles?\b|\bwholesale\b|\bbulk\b|\bresellers?\b|\bmystery box\b"
+    r"|\b(?:set|pack|lot) of \d+\b|\b\d+\s*(?:pcs?|pieces?|pack)\b", re.I,
+)
+UNWORN_RE = re.compile(r"\bnwo?t\b|\bnew with(?:out)? tags?\b|\bdeadstock\b", re.I)
 THEME_RE = re.compile("|".join(f"(?P<s{i}>\\b(?:{pattern})\\b)" for i, (pattern, _) in enumerate(THEME_STYLES)), re.I)
 GARMENT_RE = re.compile("|".join(f"(?P<g{i}>\\b(?:{pattern})\\b)" for i, (pattern, _) in enumerate(THEME_GARMENTS)), re.I)
 
@@ -303,6 +320,29 @@ def theme_matches(theme_text: str, styles: set[str], garment: str) -> bool:
     """Whether a listing with these parts sells the kind of piece `theme_text` names."""
     wanted, wanted_garment = theme_parts(theme_text)
     return garment == wanted_garment and wanted <= styles
+
+
+def _garment_family(name: str) -> set[str]:
+    return next((family for family in GARMENT_FAMILIES if name in family), {name})
+
+
+def sale_mismatch(theme_text: str, title: str, snippet: str = "") -> str | None:
+    """Why a marketplace listing cannot stand in for one piece of a `theme_text` lot, or None.
+
+    A lot holds single used pieces of the garment its theme names. Only what the
+    listing's own words show is judged: a title naming no garment passes, because
+    style, era, brand tier and wear cannot be read from it reliably.
+    """
+    if BUNDLE_RE.search(title):
+        return "bundle"
+    if UNWORN_RE.search(title) or UNWORN_RE.search(snippet):
+        return "unworn"
+    wanted = theme_parts(theme_text)[1]
+    named = {THEME_GARMENTS[int(match.lastgroup[1:])][1] for match in GARMENT_RE.finditer(title.lower())
+             if match.group() not in TITLE_MODIFIERS}
+    if wanted != MIXED_GARMENT and named and not named & _garment_family(wanted):
+        return "garment"
+    return None
 
 
 def garment(text: str) -> str:

@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.227 — 2026-10-10
+
+- Sourcing leaves out reported sales that don't match the box: a different garment, a bundle or lot, or new with tags no longer count toward a box's resale estimate. Saved research is rechecked the same way.
+
 ## 0.1.226 — 2026-10-10
 
 - The Assistant no longer fails with "Load failed" when your phone locks, you switch apps, or the connection drops while it is answering. Studio keeps writing the answer on its own, and the page reconnects and picks it up, including after you leave the Assistant and come back.
