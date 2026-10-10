@@ -1100,6 +1100,14 @@ only reads of that copy (no `ATTACH`, `PRAGMA`, or writes), each query has a
 time limit, and results are capped. Studio's real database is never handed to a
 query.
 
+**Answers outlive their connection.** An answer runs as a background run in
+the same registry listing generation uses, not inside the request that asked.
+A phone that locks or drops off the network mid-answer loses only its stream:
+the page retries, and `POST /api/assistant/messages/resume` replays the answer
+from its start. Opening the page, or returning to the tab, reattaches the same
+way. One answer runs at a time; `POST /api/assistant/messages/stop` ends it and
+keeps what was written.
+
 **Links.** An answer names a listing as `[title](#listing-<id>)`; clicking it
 opens that listing in Studio.
 

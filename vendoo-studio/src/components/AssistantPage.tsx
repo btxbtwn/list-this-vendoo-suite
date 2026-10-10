@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
+import { AssistantRefused, type AssistantMessage } from "../api/assistant";
 import { confirmDialog } from "../ui/confirmDialog";
 import { addToast } from "../ui/toast";
 import { ChatMarkdown } from "./ChatMarkdown";
@@ -19,6 +20,11 @@ const PAINT_MS = 50;
 const MESSAGES_KEY = ["assistant", "messages"];
 const NOTE_KEY = ["assistant", "note"];
 const NOTE_MAX = 4000;
+/** How often, and how many times, a dropped connection is retried before saying so. */
+const RECONNECT_MS = 1500;
+const RECONNECT_TRIES = 8;
+const LOST_CONNECTION =
+  "Lost the connection to Studio. If it was still answering, the answer appears here when you come back.";
 /** How an answer points at a listing: `[title](#listing-<id>)`. */
 const LISTING_LINK = /^#listing-([\w-]+)$/;
 
@@ -27,13 +33,26 @@ export function linkedListingId(href: string | null | undefined): string | null 
   return LISTING_LINK.exec(href ?? "")?.[1] ?? null;
 }
 
+/**
+ * What of the turn being written still has to be drawn. The saved conversation
+ * can refresh mid-answer and bring the question, or the finished answer, with
+ * it; drawing the live copy as well would show it twice.
+ */
+export function liveParts(live: LiveTurn, turns: AssistantMessage[]): { question: boolean; answer: boolean } {
+  if (live.question === null) return { question: false, answer: turns[turns.length - 1]?.role !== "assistant" };
+  return { question: turns.length <= live.asked, answer: turns.length < live.asked + 2 };
+}
+
 interface Props {
   onOpenProviders: () => void;
   onOpenListing: (id: string) => void;
 }
 
-interface LiveTurn {
-  question: string;
+export interface LiveTurn {
+  /** Null when an answer already under way was picked back up; its question is among the saved turns. */
+  question: string | null;
+  /** How many turns were saved when the question was asked. */
+  asked: number;
   answer: string;
   status: string;
 }
@@ -53,50 +72,122 @@ export function AssistantPage({ onOpenProviders, onOpenListing }: Props) {
   const scroller = useRef<HTMLDivElement | null>(null);
   const pinned = useRef(true);
 
-  useEffect(() => () => controller.current?.abort(), []);
-
   const turns = messages.data ?? [];
   useEffect(() => {
     const el = scroller.current;
     if (el && pinned.current) el.scrollTop = el.scrollHeight;
   }, [turns.length, live?.answer, live?.status, error]);
 
-  const ask = async (raw: string) => {
-    const question = raw.trim();
-    if (!question || live) return;
+  /**
+   * Follow an answer to its end: a new one when there is a question, otherwise
+   * whichever is already being written. Studio keeps writing when this
+   * connection drops, so a drop is retried, not reported.
+   */
+  const follow = async (question: string | null) => {
+    if (controller.current) return;
     const abort = new AbortController();
     controller.current = abort;
-    pinned.current = true;
-    setError("");
-    setInput("");
-    setLive({ question, answer: "", status: "Reading your shop…" });
+    let asking = question !== null;
+    const asked = turns.length;
+    let dropped = false;
     let answer = "";
     let timer: ReturnType<typeof setTimeout> | null = null;
-    const paint = () => {
-      timer = null;
-      setLive((turn) => (turn ? { ...turn, answer } : turn));
+    const show = (change: Partial<LiveTurn>) =>
+      setLive((turn) => ({ question, asked, answer, status: "", ...turn, ...change }));
+    const handlers = {
+      onText: (piece: string) => {
+        answer += piece;
+        if (timer === null) {
+          timer = setTimeout(() => {
+            timer = null;
+            show({ answer });
+          }, PAINT_MS);
+        }
+      },
+      onStatus: (status: string) => show({ status }),
     };
+    if (question !== null) {
+      pinned.current = true;
+      setError("");
+      setInput("");
+      show({ status: "Reading your shop…" });
+    }
     try {
-      await api.assistant.ask(question, {
-        onText: (piece) => {
-          answer += piece;
-          if (timer === null) timer = setTimeout(paint, PAINT_MS);
-        },
-        onStatus: (status) => setLive((turn) => (turn ? { ...turn, status } : turn)),
-      }, abort.signal);
-    } catch (failure) {
-      if (!abort.signal.aborted) {
-        setError((failure as Error).message || "The assistant could not answer.");
-        // Nothing was saved when the request never started; hand the question back.
-        if (!answer) setInput((current) => current || question);
+      for (let tries = 0; ; tries += 1) {
+        // A resumed answer is replayed from its first word.
+        answer = "";
+        try {
+          const result = asking && question !== null
+            ? await api.assistant.ask(question, handlers, abort.signal)
+            : await api.assistant.resume(handlers, abort.signal);
+          if (result.error) setError(result.error);
+          break;
+        } catch (failure) {
+          if (abort.signal.aborted) break;
+          if (failure instanceof AssistantRefused) {
+            setError(failure.message);
+            if (asking && question !== null) setInput((current) => current || question);
+            break;
+          }
+          asking = false;
+          dropped = true;
+          if (tries >= RECONNECT_TRIES) {
+            setError(LOST_CONNECTION);
+            break;
+          }
+          if (question !== null) show({ status: "Reconnecting…" });
+          await new Promise((resolve) => setTimeout(resolve, RECONNECT_MS));
+          if (abort.signal.aborted) break;
+        }
       }
     } finally {
       if (timer !== null) clearTimeout(timer);
       // Show the saved turns before dropping the live one, so the answer does not blink.
       await queryClient.invalidateQueries({ queryKey: MESSAGES_KEY });
-      if (controller.current === abort) controller.current = null;
-      setLive(null);
+      if (question !== null && dropped && !abort.signal.aborted) {
+        // The connection may have dropped before Studio ever received the question.
+        const saved = queryClient.getQueryData<AssistantMessage[]>(MESSAGES_KEY);
+        if (saved && !saved.some((turn) => turn.role === "user" && turn.text === question)) {
+          setError("Could not reach Studio. Check the connection and ask again.");
+          setInput((current) => current || question);
+        }
+      }
+      // A newer follow may own the page by now; leave its turn alone.
+      if (controller.current === abort) {
+        controller.current = null;
+        setLive(null);
+      }
     }
+  };
+  const followRef = useRef(follow);
+  useEffect(() => {
+    followRef.current = follow;
+  });
+
+  // Pick an answer back up after leaving the page, locking the phone, or reloading.
+  useEffect(() => {
+    const reattach = () => {
+      if (document.hidden) return;
+      setError((current) => (current === LOST_CONNECTION ? "" : current));
+      void followRef.current(null);
+    };
+    reattach();
+    document.addEventListener("visibilitychange", reattach);
+    return () => {
+      document.removeEventListener("visibilitychange", reattach);
+      controller.current?.abort();
+      controller.current = null;
+    };
+  }, []);
+
+  const ask = (raw: string) => {
+    const question = raw.trim();
+    if (question && !live) void follow(question);
+  };
+
+  const stop = async () => {
+    await api.assistant.stop().catch(() => undefined);
+    controller.current?.abort();
   };
 
   const startOver = async () => {
@@ -124,7 +215,8 @@ export function AssistantPage({ onOpenProviders, onOpenListing }: Props) {
     onOpenListing(id);
   };
 
-  const visible = live ? stableStreamingText(live.answer) : "";
+  const drawn = live ? liveParts(live, turns) : { question: false, answer: false };
+  const visible = live && drawn.answer ? stableStreamingText(live.answer) : "";
   const empty = !turns.length && !live && !messages.isLoading;
   const needsProvider = /sign in with chatgpt/i.test(error);
 
@@ -149,7 +241,7 @@ export function AssistantPage({ onOpenProviders, onOpenListing }: Props) {
               <ul className="assistant-starters">
                 {ASSISTANT_STARTERS.map((starter) => (
                   <li key={starter}>
-                    <button type="button" className="assistant-starter" onClick={() => { void ask(starter); }}>
+                    <button type="button" className="assistant-starter" onClick={() => ask(starter)}>
                       {starter}
                     </button>
                   </li>
@@ -167,18 +259,22 @@ export function AssistantPage({ onOpenProviders, onOpenListing }: Props) {
           ))}
           {live ? (
             <>
-              <div className="msg msg-user">
-                <ChatMarkdown text={live.question} lineBreaks />
-              </div>
+              {drawn.question && live.question !== null ? (
+                <div className="msg msg-user">
+                  <ChatMarkdown text={live.question} lineBreaks />
+                </div>
+              ) : null}
               {visible ? (
                 <div className="msg msg-assistant">
                   <ChatMarkdown text={visible} isStreaming />
                 </div>
               ) : null}
-              <div className="chat-activity is-busy" role="status">
-                <span className="chat-activity-dot" aria-hidden="true" />
-                <span className="chat-activity-text">{live.answer ? "Answering…" : live.status}</span>
-              </div>
+              {drawn.answer ? (
+                <div className="chat-activity is-busy" role="status">
+                  <span className="chat-activity-dot" aria-hidden="true" />
+                  <span className="chat-activity-text">{live.answer ? "Answering…" : live.status}</span>
+                </div>
+              ) : null}
             </>
           ) : null}
           {error ? (
@@ -208,14 +304,14 @@ export function AssistantPage({ onOpenProviders, onOpenListing }: Props) {
               onKeyDown={(event) => {
                 if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
                 event.preventDefault();
-                void ask(input);
+                ask(input);
               }}
             />
             {live ? (
               <button
                 type="button"
                 className="chat-send chat-send-cancel"
-                onClick={() => controller.current?.abort()}
+                onClick={() => { void stop(); }}
                 aria-label="Stop"
                 title="Stop answering"
               >
@@ -227,7 +323,7 @@ export function AssistantPage({ onOpenProviders, onOpenListing }: Props) {
               <button
                 type="button"
                 className="chat-send"
-                onClick={() => { void ask(input); }}
+                onClick={() => ask(input)}
                 disabled={!input.trim()}
                 aria-label="Send"
               >

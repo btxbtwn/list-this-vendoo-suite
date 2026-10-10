@@ -1,4 +1,6 @@
 """The business assistant: what it is told about the shop, and its read-only chat."""
+import asyncio
+import functools
 import json
 from datetime import UTC, date, datetime
 
@@ -259,7 +261,7 @@ def test_asking_streams_the_answer_and_keeps_both_turns(workspace, monkeypatch):
     response = client.post("/api/assistant/messages", json={"text": "  What sold last month?  "})
     assert response.status_code == 200
     assert "event: status\ndata: Reading your shop…" in response.text
-    assert "data: You sold \n\n" in response.text and response.text.endswith("data: [DONE]\n\n")
+    assert response.text.endswith("data: You sold \n\ndata: one item.\n\n")
     assert provider.seen[-1] == {"role": "user", "content": "What sold last month?"}
     assert "Levi's 501 Jeans | sold" in provider.seen[0]["content"]
 
@@ -286,3 +288,76 @@ def test_no_provider_or_no_question_saves_nothing(workspace, monkeypatch):
     assert client.post("/api/assistant/messages", json={"text": "   "}).status_code == 422
     assert client.post("/api/assistant/messages", json={"text": ""}).status_code == 422
     assert client.get("/api/assistant/messages").json() == []
+
+
+class SlowProvider:
+    """Writes half an answer, then waits to be let go."""
+
+    name = "chatgpt"
+    listing_model = "test-model"
+
+    def __init__(self):
+        self.release = asyncio.Event()
+
+    async def chat(self, messages, stream=True):
+        yield "Half of it "
+        await self.release.wait()
+        yield "done."
+
+
+async def start_answer(db, provider, question="What sold?"):
+    from vendoo_studio.services.streaming import start_generation
+
+    business_assistant.add_message(db, "user", question)
+    run = start_generation(
+        assistant_route.ANSWER_RUN, functools.partial(assistant_route._answer, provider=provider, question=question),
+    )
+    for _ in range(200):
+        if any("Half" in item for item in run.history):
+            return run
+        await asyncio.sleep(0.01)
+    raise AssertionError("the answer never started")
+
+
+async def read(response) -> str:
+    return "".join([chunk async for chunk in response.body_iterator])
+
+
+def test_the_answer_finishes_with_nobody_connected_and_a_late_follower_gets_all_of_it(workspace):
+    db, _client = workspace
+
+    async def scenario():
+        provider = SlowProvider()
+        run = await start_answer(db, provider)
+        # Whoever asked has gone; someone reattaches while it is still being written.
+        follower = asyncio.create_task(read(await assistant_route.resume()))
+        await asyncio.sleep(0.05)
+        provider.release.set()
+        await run.task
+        return await follower, await read(await assistant_route.resume())
+
+    followed, afterwards = asyncio.run(scenario())
+    assert followed.endswith("data: Half of it \n\ndata: done.\n\n") and "Reading your shop…" in followed
+    # Once it has ended there is nothing to follow, and nothing starts a second answer.
+    assert afterwards == "data: [DONE]\n\n"
+    assert [row.text for row in business_assistant.list_messages(db)] == ["What sold?", "Half of it done."]
+
+
+def test_stop_keeps_what_was_written_and_a_second_question_waits_its_turn(workspace, monkeypatch):
+    db, client = workspace
+    monkeypatch.setattr(assistant_route, "get_listing_provider", lambda: SlowProvider())
+
+    async def scenario():
+        from fastapi import HTTPException
+
+        run = await start_answer(db, SlowProvider())
+        try:
+            await assistant_route.ask(assistant_route.AssistantQuestion(text="And yesterday?"), db=db)
+        except HTTPException as refused:
+            status = refused.status_code
+        await assistant_route.stop()
+        await asyncio.gather(run.task, return_exceptions=True)
+        return status
+
+    assert asyncio.run(scenario()) == 409
+    assert [row.text for row in business_assistant.list_messages(db)] == ["What sold?", "Half of it "]

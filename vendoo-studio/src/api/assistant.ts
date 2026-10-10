@@ -12,3 +12,6 @@ export interface AssistantStreamHandlers {
   /** What the assistant is doing before the answer starts. */
   onStatus: (status: string) => void;
 }
+
+/** Studio answered the request and refused it; a dropped connection is any other error. */
+export class AssistantRefused extends Error {}
