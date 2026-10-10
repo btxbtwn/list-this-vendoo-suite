@@ -81,8 +81,11 @@ RESALE_PROMPT = (
     "ONE typical piece from a mixed wholesale lot of that category sells for. Look for "
     "comparable everyday pieces with matching garment type, brand tier, era and condition, "
     "not premium finds, multi-item bundles, new-with-tags pieces or rare examples. "
+    "Give each listing's own title, word for word: listings whose title shows another "
+    "garment, a bundle or new with tags are discarded. "
     "Return actual sold listings, never active asking prices or supplier resale claims. "
-    "Collect at least 3 distinct sales per theme in the last 30 days. Older sales within "
+    "Collect at least 3 distinct sales per theme in the last 30 days, 5 when you can, so "
+    "discarded ones do not sink the theme. Older sales within "
     "90 days can provide context, but cannot qualify a theme or set today's price. "
     "Use USD item prices excluding shipping, and exclude "
     "accepted offers when the actual price is hidden. Return JSON only: "
@@ -285,6 +288,7 @@ def _listing_identity(url: str, marketplace: str) -> str:
 def validate_research(raw: list, asked: set[str], *, now: datetime | None = None) -> dict[str, dict]:
     """The dated, distinct, explicitly sold USD examples and comparable asking prices
     reported by research, per asked theme, whether or not they are enough to price it.
+    An example counts only when its title fits the theme (the skill's `sale_mismatch`).
 
     This validates the supplied evidence, not the source pages themselves. The
     seller can inspect every retained example; no probability of sale is inferred.
@@ -320,7 +324,7 @@ def validate_research(raw: list, asked: set[str], *, now: datetime | None = None
             if not 0 <= age <= 90 or price is None or not math.isfinite(price) or not 1 <= price <= 500:
                 continue
             title = str(comp.get("title") or "").strip()
-            if not title:
+            if not title or scout().sale_mismatch(name, title, snippet):
                 continue
             seen.add(identity)
             comps.append({"url": url, "title": title[:200], "sold_at": sold_at.isoformat(),
@@ -338,6 +342,8 @@ def validate_research(raw: list, asked: set[str], *, now: datetime | None = None
             price = extract_live_price(str(comp.get("snippet") or ""))
             title = str(comp.get("title") or "").strip()
             if identity in seen or marketplace not in {"eBay", "Poshmark", "Mercari", "Depop"} or not title:
+                continue
+            if scout().sale_mismatch(name, title, str(comp.get("snippet") or "")):
                 continue
             if price is None or not math.isfinite(price) or not 1 <= price <= 500:
                 continue
@@ -402,10 +408,14 @@ async def _research_prices(themes: list[str], examples: dict[str, str], context:
 
 def _fresh_research(state: dict, now: datetime, own: dict[str, list[dict]]) -> dict[str, dict]:
     """Themes with enough current evidence: cached web research under a week old,
-    rechecked as its sale dates age out, together with the seller's own sales."""
+    rechecked as its sale dates age out and against the theme its examples must fit,
+    together with the seller's own sales."""
     fresh = {}
     for name in set(state["resale"]) | set(own):
         entry = _cached_research(state, name, now, RESALE_MAX_AGE)
+        if entry:
+            entry = {**entry, **{key: [c for c in entry.get(key) or [] if isinstance(c, dict) and not scout().sale_mismatch(
+                name, str(c.get("title") or ""), str(c.get("snippet") or ""))] for key in ("comps", "active")}}
         if priced := price_evidence(entry or {}, own.get(name, []), now=now):
             fresh[name] = {**(entry or {"updated_at": now.isoformat(), "source": OWN_SOURCE}), **priced}
     return fresh

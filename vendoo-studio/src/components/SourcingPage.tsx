@@ -571,7 +571,7 @@ function ResearchEvidence({ lot, onOpenListing }: { lot: SourcingLot; onOpenList
     {data ? <>
       <p className="sourcing-hint">{data.source === "Your sales"
         ? "These are your own recorded sales of this kind of piece."
-        : `${data.source} reported the web sales. Sale status, dates, condition and relevance are AI-reported; Studio checks the supplied data but does not independently verify each source page. Your own recorded sales count too. Review the links before buying.`}</p>
+        : `${data.source} reported the web sales. Studio leaves out any whose title shows a different garment, a bundle or new with tags. Sale status, dates, brand, era and condition are AI-reported, and Studio does not independently verify each source page. Your own recorded sales count too. Review the links before buying.`}</p>
       <ul className="sourcing-comps">
         {data.comps.map((comp) => <li key={comp.conversation_id ?? comp.url}>
           {comp.conversation_id
