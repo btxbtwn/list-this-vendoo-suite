@@ -202,6 +202,9 @@ export const api = {
   assistant: {
     messages: () => request<AssistantMessage[]>("/assistant/messages"),
     clear: () => request<{ ok: boolean }>("/assistant/messages", { method: "DELETE" }),
+    /** What the seller told the assistant about how they run the shop. */
+    note: () => request<{ note: string }>("/assistant/note"),
+    saveNote: (note: string) => request<{ note: string }>("/assistant/note", { method: "PUT", body: JSON.stringify({ note }) }),
     /** Stream an answer; the question and what was answered are saved server-side. */
     ask: async (text: string, handlers: AssistantStreamHandlers, signal?: AbortSignal): Promise<void> => {
       const res = await fetch(`${BASE}/assistant/messages`, {

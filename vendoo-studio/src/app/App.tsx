@@ -761,7 +761,7 @@ export function App() {
                 </Suspense>
               ) : activeView === "assistant" ? (
                 <Suspense fallback={null}>
-                  <AssistantPage onOpenProviders={openProviders} />
+                  <AssistantPage onOpenProviders={openProviders} onOpenListing={openListing} />
                 </Suspense>
               ) : activeView === "sourcing" ? (
                 <Suspense fallback={null}>

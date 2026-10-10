@@ -1,6 +1,7 @@
 """The business assistant's chat. These routes read Studio's data and change none of it."""
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -15,8 +16,13 @@ from vendoo_studio.services.streaming import (
     KEEPALIVE,
     SSE_HEADERS,
     iter_with_keepalives,
+    sse_data,
     sse_event,
-    sse_for_stream_item,
+)
+from vendoo_studio.services.user_settings import (
+    MAX_BUSINESS_NOTE_CHARS,
+    get_business_note,
+    set_business_note,
 )
 
 log = logging.getLogger("vendoo_studio.assistant")
@@ -28,6 +34,10 @@ class AssistantQuestion(BaseModel):
     text: str = Field(min_length=1, max_length=8000)
 
 
+class BusinessNote(BaseModel):
+    note: str = Field(max_length=MAX_BUSINESS_NOTE_CHARS)
+
+
 @router.get("/messages")
 def get_messages(db: Session = Depends(get_db)):
     return [business_assistant.message_view(row) for row in business_assistant.list_messages(db)]
@@ -37,6 +47,26 @@ def get_messages(db: Session = Depends(get_db)):
 def clear_messages(db: Session = Depends(get_db)):
     business_assistant.clear_messages(db)
     return {"ok": True}
+
+
+@router.get("/note")
+def get_note():
+    return {"note": get_business_note()}
+
+
+@router.put("/note")
+def save_note(body: BusinessNote):
+    return {"note": set_business_note(body.note)}
+
+
+def _prepare(question: str):
+    """Read the shop and build the prompt, on a worker thread with its own session."""
+    db = SessionLocal()
+    try:
+        shop = business_assistant.read_shop(db)
+        return business_assistant.build_messages(db, question, shop), shop
+    finally:
+        db.close()
 
 
 @router.post("/messages")
@@ -54,27 +84,28 @@ async def ask(body: AssistantQuestion, db: Session = Depends(get_db)):
 
     async def stream():
         answer = ""
+        shop = None
         try:
             yield sse_event("status", "Reading your shop…")
-            build_db = SessionLocal()
-            try:
-                messages = business_assistant.build_messages(build_db, question)
-            finally:
-                build_db.close()
-            async for item in iter_with_keepalives(provider.chat(messages, stream=True)):
+            messages, shop = await asyncio.to_thread(_prepare, question)
+            async for item in iter_with_keepalives(business_assistant.answer(provider, messages, shop)):
                 if item is None:
                     yield KEEPALIVE
                     continue
-                payload, content = sse_for_stream_item(item)
-                answer += content
-                if payload:
-                    yield payload
+                kind, text = item
+                if kind == "text":
+                    answer += text
+                    yield sse_data(text)
+                else:
+                    yield sse_event(kind, text)
             if not answer.strip():
                 yield sse_event("error", "The assistant returned an empty answer. Ask again.")
         except Exception as exc:
             log.exception("business assistant failed")
             yield sse_event("error", str(exc).strip() or type(exc).__name__)
         finally:
+            if shop is not None:
+                shop.lookups.close()
             # Also reached when the seller presses Stop: keep what was written so far.
             if answer.strip():
                 save_db = SessionLocal()

@@ -580,3 +580,30 @@ def set_listing_formulas(*, title: object = None, description: object = None) ->
 
     update_settings(mutator)
     return get_listing_formulas()
+
+
+BUSINESS_NOTE_KEY = "business_note"
+MAX_BUSINESS_NOTE_CHARS = 4000
+
+
+def get_business_note() -> str:
+    """What the seller told the business assistant about how they run the shop."""
+    raw = read_settings().get(BUSINESS_NOTE_KEY)
+    return raw.strip() if isinstance(raw, str) else ""
+
+
+def set_business_note(note: object) -> str:
+    if not isinstance(note, str):
+        raise ValueError("Note must be text")
+    text = note.strip()
+    if len(text) > MAX_BUSINESS_NOTE_CHARS:
+        raise ValueError(f"Note must be {MAX_BUSINESS_NOTE_CHARS} characters or fewer")
+
+    def mutator(payload: dict) -> None:
+        if text:
+            payload[BUSINESS_NOTE_KEY] = text
+        else:
+            payload.pop(BUSINESS_NOTE_KEY, None)
+
+    update_settings(mutator)
+    return text

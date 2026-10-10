@@ -66,18 +66,55 @@
   gap: 6px;
 }
 
-.assistant-clear {
-  align-self: flex-end;
+.assistant-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
   padding: 0 6px;
+}
+
+.assistant-action {
+  padding: 0;
   border: none;
   background: none;
   color: var(--color-text-muted);
   font-size: var(--text-xs);
 }
 
-.assistant-clear:hover {
+.assistant-action:hover {
   color: var(--color-text);
   text-decoration: underline;
+}
+
+.assistant-note {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+}
+
+.assistant-note label {
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
+
+.assistant-note .analytics-note {
+  margin: 0;
+}
+
+.assistant-note textarea {
+  width: 100%;
+  resize: vertical;
+}
+
+.assistant-note-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 @media (max-width: 720px) {
