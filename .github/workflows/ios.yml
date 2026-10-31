@@ -42,6 +42,10 @@ jobs:
         run: |
           xcrun swiftc Sources/API/HistoryModels.swift Tests/HistoryModelsTests.swift -o "$RUNNER_TEMP/history-tests"
           "$RUNNER_TEMP/history-tests"
+      - name: Test seller input preservation
+        run: |
+          xcrun swiftc Sources/Inputs/SellerInputs.swift Tests/SellerInputsTests.swift -o "$RUNNER_TEMP/seller-input-tests"
+          "$RUNNER_TEMP/seller-input-tests"
       - name: Build
         run: |
           set -o pipefail
@@ -72,13 +76,20 @@ jobs:
           SIMULATOR_ID="$(xcrun simctl create 'Anteroom sandbox tests' 'com.apple.CoreSimulator.SimDeviceType.iPhone-17')"
           ANTEROOM_TEST_DESTINATION="platform=iOS Simulator,id=$SIMULATOR_ID" \
             ANTEROOM_TEST_RESULTS="$RUNNER_TEMP/sandbox.xcresult" ./anteroom-ios/test-sandbox.sh
+      - name: Export simulator screenshots
+        if: always()
+        run: |
+          if [[ -d "$RUNNER_TEMP/sandbox.xcresult" ]]; then
+            xcrun xcresulttool export attachments --path "$RUNNER_TEMP/sandbox.xcresult" --output-path "$RUNNER_TEMP/screenshots"
+          fi
       - name: Keep simulator results
-        if: failure()
+        if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: iphone-sandbox-results
           path: |
             ${{ runner.temp }}/sandbox.xcresult
+            ${{ runner.temp }}/screenshots
             ${{ runner.temp }}/sandbox.log
 
   testflight:

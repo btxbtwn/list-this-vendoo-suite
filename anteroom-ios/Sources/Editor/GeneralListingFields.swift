@@ -46,12 +46,7 @@ struct GeneralListingFields: View {
             WorkspaceField("Quantity") { TextField("1", text: $form.quantity).keyboardType(.numberPad) }
             TextRow("SKU", text: $form.fields.sku)
         }
-        ListingInspectorSection("Notes & labels") {
-            TextRow("Labels", text: $form.labels)
-            WorkspaceField("Private notes") {
-                TextField("Notes about this item", text: $form.notes, axis: .vertical).lineLimit(3...10)
-            }
-        }
+
     }
 }
 

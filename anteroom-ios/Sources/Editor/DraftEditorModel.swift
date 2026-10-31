@@ -8,7 +8,7 @@ import Observation
 final class DraftEditorModel {
     struct Form: Equatable {
         var title = ""
-        var notes = ""
+        var sellerInputs = SellerInputs()
         var fields = DraftFields()
         var price = ""
         var cost = ""
@@ -34,7 +34,7 @@ final class DraftEditorModel {
         draftID = draft.id
         summary = draft
         form.title = draft.title ?? ""
-        form.notes = draft.notes ?? ""
+        form.sellerInputs = SellerInputs(notes: draft.notes)
         saved = form
     }
 
@@ -70,7 +70,7 @@ final class DraftEditorModel {
         defer { isSaving = false }
         do {
             let detail = try await api.save(draftID, DraftSave(
-                title: title, notes: form.notes, expectedUpdatedAt: updatedAt, fields: fields
+                title: title, notes: try form.sellerInputs.encodedNotes(), expectedUpdatedAt: updatedAt, fields: fields
             ))
             apply(detail)
             return detail.summary
@@ -87,7 +87,7 @@ final class DraftEditorModel {
         updatedAt = detail.updatedAt
         var next = Form()
         next.title = detail.title ?? ""
-        next.notes = detail.notes ?? ""
+        next.sellerInputs = SellerInputs(notes: detail.notes)
         next.fields = detail.fields
         next.price = Self.text(detail.fields.price)
         next.cost = Self.text(detail.fields.cost)

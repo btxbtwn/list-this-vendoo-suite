@@ -39,6 +39,7 @@ struct DraftEditorView: View {
                 ListingInspectorSection("Photos") {
                     PhotoStrip(api: model.api, draftID: model.draftID)
                 }
+                SellerInputFields(inputs: $model.form.sellerInputs)
                 GeneralListingFields(form: $model.form)
             }
             .padding(16)

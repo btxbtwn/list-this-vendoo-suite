@@ -60,6 +60,7 @@ private struct EditorLayoutReview: View {
                         }
                     }
                 }
+                SellerInputFields(inputs: $form.sellerInputs)
                 GeneralListingFields(form: $form)
             }
             .padding(16)
@@ -72,6 +73,7 @@ private struct EditorLayoutReview: View {
             form.fields.description = "Soft woven linen with a relaxed fit and button front. Lightly worn and ready for a new home."
             form.price = "32"
             form.cost = "8"
+            form.sellerInputs = SellerInputs(notes: #"{"sellerNotes":"Estate sale find","knownFlaws":"Small mark near hem","cog":"8","packageDimensions":"12x9x3","garment":"top","measurements":{"top":{"pitToPit":"22.5","length":"27","sleeve":"9"}}}"#)
             form.quantity = "1"
             form.fields.brand = "Sample brand"
         }

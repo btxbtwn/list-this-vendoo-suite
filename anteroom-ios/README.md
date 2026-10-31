@@ -129,3 +129,27 @@ data. It does not replace the signed-in app or test API behavior. The sample
 photo illustrations are placeholders, not uploaded product photos. Review
 light/dark appearance and larger text sizes; live cover-photo loading, uploads
 and edits still need configured-account verification.
+
+## Seller inputs and measurements
+
+Photos are followed by native Notes & Labels, Pricing & Shipping, and
+Measurements (in), before generated General listing fields. These controls use
+the desktop ItemDetails notes keys: SKU, seller notes, known flaws, labels,
+cost of goods, package dimensions, garment and per-garment measurements.
+Top, Pants and Skirt retain their separate values when switching. Measurements
+are seller text in inches, so fractions are not converted or rounded.
+
+Save sends the structured notes with the existing optimistic draft save.
+Unedited notes are sent byte-for-byte unchanged; editing known fields preserves
+unknown root fields and nested measurement values. Plain narrative notes remain
+seller notes when other fields are added. No database or API schema changes are
+needed. Seller inputs are evidence for generation, separate from generated
+price/cost/SKU fields. Existing generated labels remain preserved by the General
+save contract; the visible seller labels use desktop's `vendooLabels` notes key.
+Package dimensions display saved seller values; shared preference defaults and
+recent-label suggestions remain part of the settings port.
+
+The iOS workflow runs executable seller-note preservation tests and the hosted
+sandbox UI test that saves seller inputs, switches garments, relaunches the app
+and checks the saved values. Screenshots are exported from XCTest results into
+the `iphone-sandbox-results` workflow artifact, on success as well as failure.
