@@ -75,8 +75,9 @@ add to a record to make a check pass.
 - ORM fields use `Mapped[...] = mapped_column(...)`. Keep database nullability
   explicit: a Python type refactor must not silently change existing tables.
   Type checking blocks CI on new errors; its baseline may only shrink.
-- Most layer exceptions are services importing `routes/extension.py` for the
-  extension connection. Moving that connection into a service removes them.
+- The extension bridge and connection state live in `services/extension_connection.py`.
+  Import that service from other services; `routes/extension.py` only registers
+  the HTTP and WebSocket endpoints.
 
 ## Traps
 

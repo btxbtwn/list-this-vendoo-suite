@@ -50,7 +50,7 @@ class ListingReviewTest(unittest.TestCase):
         self.patches = [
             patch("vendoo_studio.services.vendoo_create.run_ops", run_ops),
             patch("vendoo_studio.services.vendoo_create.prepare_listing_fields_for_vendoo", prepare),
-            patch("vendoo_studio.routes.extension.schedule_advance_job_queue"),
+            patch("vendoo_studio.services.extension_connection.schedule_advance_job_queue"),
         ]
         for p in self.patches:
             p.start()

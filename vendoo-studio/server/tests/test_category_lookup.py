@@ -226,8 +226,8 @@ class ResolveCategorySnapshotTest(unittest.IsolatedAsyncioTestCase):
             manager = Mock(connected=True)
             manager.register_wait.return_value = waiter
 
-            with patch("vendoo_studio.routes.extension.extension_manager", manager), patch(
-                "vendoo_studio.routes.extension.dispatch_search_categories",
+            with patch("vendoo_studio.services.extension_connection.extension_manager", manager), patch(
+                "vendoo_studio.services.extension_connection.dispatch_search_categories",
                 new=AsyncMock(return_value=True),
             ):
                 result = await resolve_listing_category(db, conv.id, job=job)

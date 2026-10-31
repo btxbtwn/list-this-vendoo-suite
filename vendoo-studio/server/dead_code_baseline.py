@@ -14,7 +14,7 @@ _.get_for_job_ids  # unused method (server/vendoo_studio/repositories/queries.py
 _.delete_for_jobs  # unused method (server/vendoo_studio/repositories/queries.py:1468)
 vendoo_listed_at  # unused variable (server/vendoo_studio/routes/conversations.py:72)
 MessageResponse  # unused class (server/vendoo_studio/routes/conversations.py:95)
-dispatch_show_vendoo  # unused function (server/vendoo_studio/routes/extension.py:729)
+dispatch_show_vendoo  # unused function (server/vendoo_studio/services/extension_connection.py:729)
 _first_error  # unused function (server/vendoo_studio/routes/listings.py:23)
 jobs_for_run  # unused function (server/vendoo_studio/services/automations.py:1213)
 bottoms_options  # unused function (server/vendoo_studio/services/bottoms_sizes.py:257)

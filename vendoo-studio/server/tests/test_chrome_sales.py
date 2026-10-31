@@ -216,7 +216,7 @@ class ItemSaleCheckTest(unittest.TestCase):
         manager = mock.Mock(connected=True)
         announced = mock.AsyncMock()
         with mock.patch("vendoo_studio.services.browser_bridge.request", request), \
-                mock.patch("vendoo_studio.routes.extension.extension_manager", manager), \
+                mock.patch("vendoo_studio.services.extension_connection.extension_manager", manager), \
                 mock.patch("vendoo_studio.services.marketplace_accounts.announce_sales", announced):
             with Session() as db:
                 result = asyncio.run(chrome_sales.check_item(db, conv_id, session_factory=Session))
@@ -288,7 +288,7 @@ class ItemSaleCheckTest(unittest.TestCase):
             social = asyncio.run(chrome_sales.check_item(db, facebook, session_factory=Session))
         self.assertEqual(nothing["skipped"], "No live listing to check.")
         self.assertEqual(social["skipped"], "No live listing to check.")
-        with mock.patch("vendoo_studio.routes.extension.extension_manager", mock.Mock(connected=False)):
+        with mock.patch("vendoo_studio.services.extension_connection.extension_manager", mock.Mock(connected=False)):
             with Session() as db:
                 offline = asyncio.run(chrome_sales.check_item(db, listed, session_factory=Session))
         self.assertEqual((offline["ok"], offline["skipped"]), (False, "Connect Chrome first."))
@@ -324,7 +324,7 @@ class ItemSaleCheckRouteTest(unittest.TestCase):
             return {"ok": True, "sales": [{"listing_id": "shop-tee-136d"}]}
 
         with mock.patch("vendoo_studio.services.browser_bridge.request", request), \
-                mock.patch("vendoo_studio.routes.extension.extension_manager", mock.Mock(connected=True)), \
+                mock.patch("vendoo_studio.services.extension_connection.extension_manager", mock.Mock(connected=True)), \
                 mock.patch.object(chrome_sales, "record_reported_sales", return_value=["sale-1"]) as record, \
                 mock.patch("vendoo_studio.services.marketplace_accounts.announce_sales", mock.AsyncMock()):
             body = TestClient(app).post(f"/api/conversations/{conv_id}/marketplace-listings/check-sales").json()
@@ -357,7 +357,7 @@ class NotesClaimedSaleCheckTest(unittest.TestCase):
 
         announced = mock.AsyncMock()
         with mock.patch("vendoo_studio.services.browser_bridge.request", request), \
-                mock.patch("vendoo_studio.routes.extension.extension_manager", mock.Mock(connected=True)), \
+                mock.patch("vendoo_studio.services.extension_connection.extension_manager", mock.Mock(connected=True)), \
                 mock.patch("vendoo_studio.services.marketplace_accounts.announce_sales", announced):
             with Session() as db:
                 result = asyncio.run(chrome_sales.check_item(db, conv_id, session_factory=Session))
@@ -402,7 +402,7 @@ class DetectedSaleProtectionTest(unittest.TestCase):
             return {"ok": True, "sales": [{"listing_id": sold} for sold in reported]}
 
         with mock.patch("vendoo_studio.services.browser_bridge.request", request), \
-                mock.patch("vendoo_studio.routes.extension.extension_manager", mock.Mock(connected=True)), \
+                mock.patch("vendoo_studio.services.extension_connection.extension_manager", mock.Mock(connected=True)), \
                 mock.patch("vendoo_studio.services.marketplace_accounts.announce_sales", mock.AsyncMock()):
             with Session() as db:
                 return asyncio.run(chrome_sales.check_item(db, conv_id, session_factory=Session))
@@ -486,7 +486,7 @@ class MarkedSoldElsewhereTest(unittest.TestCase):
             return {"ok": True, "sales": [{"listing_id": sold} for sold in reported]}
 
         with mock.patch("vendoo_studio.services.browser_bridge.request", request), \
-                mock.patch("vendoo_studio.routes.extension.extension_manager", mock.Mock(connected=True)), \
+                mock.patch("vendoo_studio.services.extension_connection.extension_manager", mock.Mock(connected=True)), \
                 mock.patch("vendoo_studio.services.marketplace_accounts.announce_sales", mock.AsyncMock()):
             with Session() as db:
                 return asyncio.run(chrome_sales.check_item(db, conv_id, session_factory=Session))

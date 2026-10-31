@@ -165,7 +165,7 @@ def _save_floor(db: Session, marketplace: str, listing_id: str, conv_id: str, ce
 
 
 def require_chrome() -> None:
-    from vendoo_studio.routes.extension import extension_manager
+    from vendoo_studio.services.extension_connection import extension_manager
 
     if not extension_manager.connected:
         raise PromotionError(409, "Connect Chrome first.", "chrome")
@@ -300,7 +300,7 @@ def _choose_shipping(row: ListingPromotion, shipping_discount_id: str | None) ->
 async def perform(db: Session, promotion_id: str, shipping_discount_id: str | None = None, *, gap_ms: int | None = None,
                   new_like_at: datetime | None = None) -> dict:
     """Send one reviewed row, once. The caller has the seller's explicit confirmation or enabled automation."""
-    from vendoo_studio.routes.extension import schedule_advance_job_queue
+    from vendoo_studio.services.extension_connection import schedule_advance_job_queue
 
     row = _get(db, promotion_id)
     if row.state != "preview":

@@ -34,7 +34,7 @@ async def connect_chrome():
     try:
         result = await asyncio.to_thread(relaunch_studio_chrome, visible=True)
         result.setdefault("via", "chrome")
-        from vendoo_studio.routes.extension import (
+        from vendoo_studio.services.extension_connection import (
             extension_manager,
             request_extension_reload,
             wait_for_extension_connection,

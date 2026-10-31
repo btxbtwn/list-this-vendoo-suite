@@ -95,7 +95,7 @@ def parse_ebay_cards(cards: list, today: date) -> list[dict]:
 
 
 async def _read_ebay(queries: list[str]) -> dict:
-    from vendoo_studio.routes.extension import extension_manager
+    from vendoo_studio.services.extension_connection import extension_manager
 
     request_id = "sold:" + uuid.uuid4().hex
     waiter = extension_manager.register_wait(request_id)
@@ -112,7 +112,7 @@ async def _read_ebay(queries: list[str]) -> dict:
 
 def ebay_ready() -> bool:
     """Whether a connected Chrome extension new enough to read eBay is there to ask."""
-    from vendoo_studio.routes.extension import extension_manager
+    from vendoo_studio.services.extension_connection import extension_manager
 
     try:
         version = tuple(int(part) for part in (extension_manager.version or "").split("."))
@@ -125,7 +125,7 @@ def ebay_sold(queries: list[str], today: date) -> dict[str, list[dict]]:
     """eBay's sold listings per query, for every search Chrome completed. Empty
     when Chrome is not connected. Called from the sourcing thread, never the
     server's event loop."""
-    from vendoo_studio.routes.extension import extension_manager
+    from vendoo_studio.services.extension_connection import extension_manager
 
     if not queries or not ebay_ready():
         return {}

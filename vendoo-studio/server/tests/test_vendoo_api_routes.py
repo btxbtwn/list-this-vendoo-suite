@@ -191,7 +191,7 @@ class CreateRouteTest(_RouteTest):
             return CREATED
 
         with patch("vendoo_studio.services.vendoo_create.create_item", fake_create), \
-             patch("vendoo_studio.routes.extension.dispatch_queued_jobs", AsyncMock()):
+             patch("vendoo_studio.services.extension_connection.dispatch_queued_jobs", AsyncMock()):
             res = self.client.post(f"/api/conversations/{self.conv.id}/vendoo-api/create")
         self.assertEqual(res.status_code, 200, res.text)
         self.assertEqual(seen["evidence"], analysis)
@@ -208,7 +208,7 @@ class CreateRouteTest(_RouteTest):
             return CREATED
 
         with patch("vendoo_studio.services.vendoo_create.create_item", fake_create), \
-             patch("vendoo_studio.routes.extension.dispatch_queued_jobs", dispatch):
+             patch("vendoo_studio.services.extension_connection.dispatch_queued_jobs", dispatch):
             res = self.client.post(f"/api/conversations/{self.conv.id}/vendoo-api/create")
         self.assertEqual(res.status_code, 200, res.text)
         body = res.json()

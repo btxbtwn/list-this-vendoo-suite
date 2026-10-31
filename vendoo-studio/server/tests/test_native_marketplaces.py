@@ -60,9 +60,9 @@ class NativeMarketplacesTest(unittest.TestCase):
         self.base = f"/api/conversations/{self.conv.id}/native-marketplaces"
         self.bridge = self.enterContext(patch("vendoo_studio.services.native_marketplaces.browser_bridge.request", new_callable=AsyncMock))
         self.manager = SimpleNamespace(connected=True, build="test-build", send_message=AsyncMock(return_value=True))
-        self.enterContext(patch("vendoo_studio.routes.extension.extension_manager", self.manager))
+        self.enterContext(patch("vendoo_studio.services.extension_connection.extension_manager", self.manager))
         self.enterContext(patch("vendoo_studio.services.native_marketplaces.expected_extension_build", return_value="test-build"))
-        self.enterContext(patch("vendoo_studio.routes.extension.schedule_advance_job_queue"))
+        self.enterContext(patch("vendoo_studio.services.extension_connection.schedule_advance_job_queue"))
         self.enterContext(patch("vendoo_studio.database.SessionLocal", self.sessions))
         self.enterContext(patch.object(native, "SETTLE_POLL_S", 0))
         self.launched = []

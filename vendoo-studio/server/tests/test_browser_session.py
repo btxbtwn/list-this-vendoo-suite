@@ -14,7 +14,7 @@ from sqlalchemy.pool import StaticPool
 from vendoo_studio.database import Base, get_db
 from vendoo_studio.main import app
 from vendoo_studio.repositories.queries import ConversationRepo, JobRepo, ListingRepo
-from vendoo_studio.routes.extension import ExtensionManager
+from vendoo_studio.services.extension_connection import ExtensionManager
 from vendoo_studio.services.preview_hub import sanitize_frame
 
 
@@ -58,7 +58,7 @@ class BrowserRouteTest(unittest.TestCase):
 
         app.dependency_overrides[get_db] = override_get_db
         self.patches = [
-            patch("vendoo_studio.routes.extension.extension_manager", self.manager),
+            patch("vendoo_studio.services.extension_connection.extension_manager", self.manager),
         ]
         for item in self.patches:
             item.start()
@@ -179,13 +179,13 @@ class BrowserResultOverWebSocketTest(unittest.TestCase):
             resolved[request_id] = payload
             original_resolve(request_id, payload)
 
-        with patch("vendoo_studio.routes.extension.SessionLocal", Session), \
-             patch("vendoo_studio.routes.extension.extension_manager", manager), \
+        with patch("vendoo_studio.services.extension_connection.SessionLocal", Session), \
+             patch("vendoo_studio.services.extension_connection.extension_manager", manager), \
              patch.object(manager, "verify_token", return_value=True), \
              patch.object(manager, "resolve_wait", side_effect=record), \
-             patch("vendoo_studio.routes.extension._websocket_allowed", return_value=True), \
-             patch("vendoo_studio.routes.extension.handshake_extension", side_effect=handshake), \
-             patch("vendoo_studio.routes.extension.dispatch_queued_jobs", AsyncMock()):
+             patch("vendoo_studio.services.extension_connection._websocket_allowed", return_value=True), \
+             patch("vendoo_studio.services.extension_connection.handshake_extension", side_effect=handshake), \
+             patch("vendoo_studio.services.extension_connection.dispatch_queued_jobs", AsyncMock()):
             client = TestClient(app)
             with client.websocket_connect("/api/extension/ws") as ws:
                 ws.send_json({"type": "extension.ready", "payload": {"token": "test"}})
@@ -218,12 +218,12 @@ class PreviewFrameForFinishedDraftTest(unittest.TestCase):
         async def publish(key, frame):
             published.append((key, frame))
 
-        with patch("vendoo_studio.routes.extension.SessionLocal", Session), \
-             patch("vendoo_studio.routes.extension.extension_manager", manager), \
+        with patch("vendoo_studio.services.extension_connection.SessionLocal", Session), \
+             patch("vendoo_studio.services.extension_connection.extension_manager", manager), \
              patch.object(manager, "verify_token", return_value=True), \
-             patch("vendoo_studio.routes.extension._websocket_allowed", return_value=True), \
-             patch("vendoo_studio.routes.extension.handshake_extension", side_effect=handshake), \
-             patch("vendoo_studio.routes.extension.dispatch_queued_jobs", AsyncMock()), \
+             patch("vendoo_studio.services.extension_connection._websocket_allowed", return_value=True), \
+             patch("vendoo_studio.services.extension_connection.handshake_extension", side_effect=handshake), \
+             patch("vendoo_studio.services.extension_connection.dispatch_queued_jobs", AsyncMock()), \
              patch("vendoo_studio.services.preview_hub.preview_hub.publish", side_effect=publish):
             client = TestClient(app)
             with client.websocket_connect("/api/extension/ws") as ws:
@@ -266,12 +266,12 @@ class FinishedJobRepliesTest(unittest.TestCase):
                 future.add_done_callback(lambda f: resolved.setdefault("req-1", f.result()))
             return True
 
-        with patch("vendoo_studio.routes.extension.SessionLocal", Session), \
-             patch("vendoo_studio.routes.extension.extension_manager", manager), \
+        with patch("vendoo_studio.services.extension_connection.SessionLocal", Session), \
+             patch("vendoo_studio.services.extension_connection.extension_manager", manager), \
              patch.object(manager, "verify_token", return_value=True), \
-             patch("vendoo_studio.routes.extension._websocket_allowed", return_value=True), \
-             patch("vendoo_studio.routes.extension.handshake_extension", side_effect=handshake), \
-             patch("vendoo_studio.routes.extension.dispatch_queued_jobs", AsyncMock()):
+             patch("vendoo_studio.services.extension_connection._websocket_allowed", return_value=True), \
+             patch("vendoo_studio.services.extension_connection.handshake_extension", side_effect=handshake), \
+             patch("vendoo_studio.services.extension_connection.dispatch_queued_jobs", AsyncMock()):
             client = TestClient(app)
             with client.websocket_connect("/api/extension/ws") as ws:
                 ws.send_json({"type": "extension.ready", "payload": {"token": "test"}})

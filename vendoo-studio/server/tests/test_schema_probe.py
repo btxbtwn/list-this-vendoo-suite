@@ -293,7 +293,7 @@ class SchemaProbeDispatchTest(unittest.TestCase):
         import asyncio
         import threading
 
-        from vendoo_studio.routes import extension as extension_routes
+        from vendoo_studio.services import extension_connection as extension_routes
 
         sent: list[dict] = []
         test = self
@@ -335,7 +335,7 @@ class SchemaProbeDispatchTest(unittest.TestCase):
     def test_database_work_runs_off_the_event_loop(self):
         import threading
 
-        from vendoo_studio.routes import extension as extension_routes
+        from vendoo_studio.services import extension_connection as extension_routes
 
         threads = []
         real = extension_routes._next_dispatch

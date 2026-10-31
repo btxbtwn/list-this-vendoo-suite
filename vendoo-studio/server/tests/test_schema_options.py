@@ -168,7 +168,7 @@ class SchemaPayloadRoundTripTest(unittest.TestCase):
         self.db.close()
 
     def test_probe_options_reach_the_extension_payload(self):
-        from vendoo_studio.routes.extension import (
+        from vendoo_studio.services.extension_connection import (
             _build_registry_options,
             _learn_schema_options,
         )
@@ -195,7 +195,7 @@ class SchemaPayloadRoundTripTest(unittest.TestCase):
         self.assertNotIn("holiday", payload["etsy"])
 
     def test_options_are_scoped_to_the_probed_category(self):
-        from vendoo_studio.routes.extension import (
+        from vendoo_studio.services.extension_connection import (
             _build_registry_options,
             _learn_schema_options,
         )

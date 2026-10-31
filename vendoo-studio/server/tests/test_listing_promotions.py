@@ -35,8 +35,8 @@ class ListingPromotionsTest(unittest.TestCase):
         self.db.commit()
         self.bridge = self.enterContext(patch("vendoo_studio.services.listing_promotions.browser_bridge.request", new_callable=AsyncMock))
         self.bridge.side_effect = self.answer
-        self.enterContext(patch("vendoo_studio.routes.extension.extension_manager", SimpleNamespace(connected=True)))
-        self.enterContext(patch("vendoo_studio.routes.extension.schedule_advance_job_queue", lambda: None))
+        self.enterContext(patch("vendoo_studio.services.extension_connection.extension_manager", SimpleNamespace(connected=True)))
+        self.enterContext(patch("vendoo_studio.services.extension_connection.schedule_advance_job_queue", lambda: None))
         self.check = {"ok": True, "price_cents": 5000, "like_count": 3, "minimum_discount_percent": 10,
                       "maximum_discount_percent": 79, "offer_price_cents": 4000,
                       "shipping_discounts": [{"id": DISCOUNT, "label": "-$1.50", "min_offer_cents": 500}]}

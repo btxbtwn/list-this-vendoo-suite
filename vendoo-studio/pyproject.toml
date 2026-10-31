@@ -1,6 +1,6 @@
 [project]
 name = "vendoo-studio"
-version = "0.1.610"
+version = "0.1.611"
 description = "Local web app for generating and automating Vendoo marketplace listings"
 requires-python = ">=3.12"
 dependencies = [
@@ -144,23 +144,6 @@ ignore_imports = [
   "vendoo_studio.services.automation_actions -> vendoo_studio.routes.chat",
   "vendoo_studio.services.background_worker -> vendoo_studio.routes.chat",
   "vendoo_studio.services.box_scout -> vendoo_studio.desktop",
-  "vendoo_studio.services.browser_bridge -> vendoo_studio.routes.extension",
-  "vendoo_studio.services.browser_fill -> vendoo_studio.routes.extension",
-  "vendoo_studio.services.category_lookup -> vendoo_studio.routes.extension",
-  "vendoo_studio.services.category_tree -> vendoo_studio.routes.extension",
-  "vendoo_studio.services.chrome_catalog -> vendoo_studio.routes.extension",
-  "vendoo_studio.services.chrome_sales -> vendoo_studio.routes.extension",
-  "vendoo_studio.services.completion_pause -> vendoo_studio.routes.extension",
-  "vendoo_studio.services.completion_readback -> vendoo_studio.routes.extension",
-  "vendoo_studio.services.facebook_listing -> vendoo_studio.routes.extension",
-  "vendoo_studio.services.job_watchdog -> vendoo_studio.routes.extension",
-  "vendoo_studio.services.listing_completion -> vendoo_studio.routes.extension",
-  "vendoo_studio.services.listing_promotions -> vendoo_studio.routes.extension",
   "vendoo_studio.services.marketplace_accounts -> vendoo_studio.desktop",
-  "vendoo_studio.services.marketplace_delist -> vendoo_studio.routes.extension",
-  "vendoo_studio.services.native_marketplaces -> vendoo_studio.routes.extension",
-  "vendoo_studio.services.schema_probe -> vendoo_studio.routes.extension",
-  "vendoo_studio.services.send_queue -> vendoo_studio.routes.extension",
   "vendoo_studio.services.send_queue -> vendoo_studio.routes.vendoo_api",
-  "vendoo_studio.services.sold_listings -> vendoo_studio.routes.extension",
 ]

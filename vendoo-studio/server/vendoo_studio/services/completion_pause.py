@@ -32,7 +32,7 @@ def pause_job(db: Session, job, reason: str, gaps: list[dict], *, waiting: bool 
     JobRepo(db).add_event(job.id, job.current_step, job.current_step, {"reason": reason, "fields": gaps})
     repo = ConversationRepo(db)
     repo.update_status(job.conversation_id, "draft")
-    from vendoo_studio.routes.extension import schedule_advance_job_queue
+    from vendoo_studio.services.extension_connection import schedule_advance_job_queue
     schedule_advance_job_queue()
     if _recent_message_covers(repo, job.conversation_id, reason):
         # Same review note already in chat — keep the pause without duplicating lines.

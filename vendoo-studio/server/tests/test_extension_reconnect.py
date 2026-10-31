@@ -15,7 +15,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from vendoo_studio.database import Base
-from vendoo_studio.routes.extension import (
+from vendoo_studio.services.extension_connection import (
     RECONNECT_SETTLE_SEC,
     ExtensionManager,
     _after_pairing,
@@ -68,11 +68,11 @@ class ReconnectWorkTest(unittest.IsolatedAsyncioTestCase):
 
     def _patch_work(self, manager, settle=RECONNECT_SETTLE_SEC):
         """Stand the bridge up around a manager and watch the reconnect work."""
-        self.enterContext(patch("vendoo_studio.routes.extension.extension_manager", manager))
-        self.enterContext(patch("vendoo_studio.routes.extension.RECONNECT_SETTLE_SEC", settle))
-        resume = self.enterContext(patch("vendoo_studio.routes.extension._resume_interrupted_sends"))
+        self.enterContext(patch("vendoo_studio.services.extension_connection.extension_manager", manager))
+        self.enterContext(patch("vendoo_studio.services.extension_connection.RECONNECT_SETTLE_SEC", settle))
+        resume = self.enterContext(patch("vendoo_studio.services.extension_connection._resume_interrupted_sends"))
         warm = self.enterContext(
-            patch("vendoo_studio.routes.extension._warm_label_catalog", new=AsyncMock())
+            patch("vendoo_studio.services.extension_connection._warm_label_catalog", new=AsyncMock())
         )
         # Imported inside the work, so it is patched where it is defined.
         self.enterContext(
@@ -101,7 +101,7 @@ class ReconnectWorkTest(unittest.IsolatedAsyncioTestCase):
         resume.assert_not_called()
         # The socket outlives the window, so the work runs after it. Shorten the
         # window now: the deferred check reads it when it wakes.
-        self.enterContext(patch("vendoo_studio.routes.extension.RECONNECT_SETTLE_SEC", 0.01))
+        self.enterContext(patch("vendoo_studio.services.extension_connection.RECONNECT_SETTLE_SEC", 0.01))
         await asyncio.sleep(0.1)
         resume.assert_called_once()
         warm.assert_called_once()
@@ -116,7 +116,7 @@ class ReconnectWorkTest(unittest.IsolatedAsyncioTestCase):
         manager.note_handshake()  # the pairing that just flapped
         _after_pairing(self.db, ws)
         manager.connection = FakeSocket()  # the worker paired again already
-        self.enterContext(patch("vendoo_studio.routes.extension.RECONNECT_SETTLE_SEC", 0.01))
+        self.enterContext(patch("vendoo_studio.services.extension_connection.RECONNECT_SETTLE_SEC", 0.01))
         await asyncio.sleep(0.1)
         resume.assert_not_called()
         warm.assert_not_called()

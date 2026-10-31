@@ -62,7 +62,7 @@ class FacebookListingTest(unittest.TestCase):
         self.db.commit()
         self.base = f"/api/conversations/{self.conv.id}/marketplace-listings"
         self.bridge = self.enterContext(patch("vendoo_studio.services.browser_bridge.request", new_callable=AsyncMock))
-        self.enterContext(patch("vendoo_studio.routes.extension.extension_manager", SimpleNamespace(connected=True)))
+        self.enterContext(patch("vendoo_studio.services.extension_connection.extension_manager", SimpleNamespace(connected=True)))
 
     def tearDown(self):
         app.dependency_overrides.clear()

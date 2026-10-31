@@ -109,7 +109,7 @@ def preview_categories(preview: dict | None) -> dict[str, str]:
 
 async def live_preview(listing: dict) -> dict | None:
     """Ask the connected extension. A stand-in connection answers nothing."""
-    from vendoo_studio.routes.extension import extension_manager
+    from vendoo_studio.services.extension_connection import extension_manager
     from vendoo_studio.services import browser_bridge
 
     if not getattr(extension_manager, "connected", False) or not hasattr(extension_manager, "register_wait"):

@@ -88,9 +88,9 @@ class VintedListRouteTest(unittest.TestCase):
             {"ok": True, "state": "published", "draft_url": self.draft_url, "listing_url": "https://www.vinted.com/items/42-black-tee"},
         ]
         self.manager = SimpleNamespace(connected=True, build="test-build", send_message=AsyncMock(return_value=True))
-        self.enterContext(patch("vendoo_studio.routes.extension.extension_manager", self.manager))
+        self.enterContext(patch("vendoo_studio.services.extension_connection.extension_manager", self.manager))
         self.enterContext(patch("vendoo_studio.services.native_marketplaces.expected_extension_build", return_value="test-build"))
-        self.enterContext(patch("vendoo_studio.routes.extension.schedule_advance_job_queue"))
+        self.enterContext(patch("vendoo_studio.services.extension_connection.schedule_advance_job_queue"))
         self.enterContext(patch("vendoo_studio.database.SessionLocal", self.sessions))
         self.launched = []
         self.enterContext(patch.object(native, "_launch", self.launched.append))

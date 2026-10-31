@@ -10,7 +10,7 @@ from sqlalchemy.pool import StaticPool
 from vendoo_studio.database import Base
 from vendoo_studio.repositories.queries import ConversationRepo, JobRepo, ListingRepo
 from vendoo_studio.routes.jobs import SendJobRequest, enqueue_send, cancel_job, get_queue
-from vendoo_studio.routes.extension import dispatch_queued_jobs
+from vendoo_studio.services.extension_connection import dispatch_queued_jobs
 from vendoo_studio.services.vendoo_create import VendooCreateError
 
 
@@ -22,10 +22,10 @@ class SendQueueTest(unittest.IsolatedAsyncioTestCase):
         self.db = self.sessions()
         self.tasks = []
         self.patches = [
-            patch("vendoo_studio.routes.extension.SessionLocal", self.sessions),
+            patch("vendoo_studio.services.extension_connection.SessionLocal", self.sessions),
             patch("vendoo_studio.services.send_queue.SessionLocal", self.sessions),
-            patch("vendoo_studio.routes.extension.schedule_advance_job_queue"),
-            patch("vendoo_studio.routes.extension.extension_manager", MagicMock(connected=True)),
+            patch("vendoo_studio.services.extension_connection.schedule_advance_job_queue"),
+            patch("vendoo_studio.services.extension_connection.extension_manager", MagicMock(connected=True)),
             patch("vendoo_studio.services.streaming.spawn", self.spawn),
             patch("vendoo_studio.services.listing_provider.provider_is_configured", return_value=False),
         ]
@@ -106,7 +106,7 @@ class SendQueueTest(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(HTTPException) as caught:
             await self.enqueue(conv)
         self.assertEqual(caught.exception.status_code, 409)
-        with patch("vendoo_studio.routes.extension.extension_manager.send_message", AsyncMock()):
+        with patch("vendoo_studio.services.extension_connection.extension_manager.send_message", AsyncMock()):
             await cancel_job(job.id, self.db)
         await dispatch_queued_jobs()
         self.assertEqual(self.tasks, [])
@@ -115,7 +115,7 @@ class SendQueueTest(unittest.IsolatedAsyncioTestCase):
     async def test_disconnected_send_stays_queued_and_feed_includes_generation(self):
         conv = self.listing("Generating")
         job = await self.enqueue(conv)
-        with patch("vendoo_studio.routes.extension.extension_manager", MagicMock(connected=False)):
+        with patch("vendoo_studio.services.extension_connection.extension_manager", MagicMock(connected=False)):
             await dispatch_queued_jobs()
         self.assertEqual(self.tasks, [])
         self.assertEqual(JobRepo(self.db).get(job.id).status, "queued")
@@ -148,7 +148,7 @@ class SendQueueTest(unittest.IsolatedAsyncioTestCase):
             repo.update_status(job.id, "completed", "vendoo_api_saved")
             done.set()
 
-        with patch("vendoo_studio.routes.extension.schedule_advance_job_queue", side_effect=lambda: asyncio.create_task(dispatch_queued_jobs())), \
+        with patch("vendoo_studio.services.extension_connection.schedule_advance_job_queue", side_effect=lambda: asyncio.create_task(dispatch_queued_jobs())), \
              patch("vendoo_studio.services.vendoo_create.create_item", create), \
              patch("vendoo_studio.routes.vendoo_api._save_claimed_draft", save):
             await self.enqueue(first)

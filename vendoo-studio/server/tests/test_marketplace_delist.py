@@ -41,7 +41,7 @@ class MarketplaceDelistTest(unittest.TestCase):
         self.base = f"/api/conversations/{self.conv.id}/marketplace-listings"
         self.bridge = self.enterContext(patch("vendoo_studio.services.marketplace_delist.browser_bridge.request", new_callable=AsyncMock))
         self.bridge.return_value = {"ok": True, "state": "deleted"}
-        self.enterContext(patch("vendoo_studio.routes.extension.extension_manager", SimpleNamespace(connected=True)))
+        self.enterContext(patch("vendoo_studio.services.extension_connection.extension_manager", SimpleNamespace(connected=True)))
         self.ebay = self.enterContext(patch("vendoo_studio.services.marketplace_delist._delete_ebay", new_callable=AsyncMock))
         self.ebay.return_value = {"ok": True, "state": "deleted"}
         self.etsy = self.enterContext(patch("vendoo_studio.services.marketplace_delist._delete_etsy", new_callable=AsyncMock))
@@ -288,7 +288,7 @@ class MarketplaceDelistTest(unittest.TestCase):
         self.etsy.assert_not_called()
 
     def test_browser_marketplaces_need_chrome(self):
-        with patch("vendoo_studio.routes.extension.extension_manager", SimpleNamespace(connected=False)):
+        with patch("vendoo_studio.services.extension_connection.extension_manager", SimpleNamespace(connected=False)):
             self.assertEqual(self.client.post(f"{self.base}/delist", json={"marketplaces": ["depop"], "confirm": True}).status_code, 409)
             self.assertEqual(self.client.post(f"{self.base}/delist", json={"marketplaces": ["vinted"], "confirm": True}).status_code, 409)
             self.assertEqual(self.client.post(f"{self.base}/delist", json={"marketplaces": ["etsy"], "confirm": True}).status_code, 200)

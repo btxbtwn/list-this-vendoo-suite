@@ -5,7 +5,7 @@ import subprocess
 import unittest
 from pathlib import Path
 
-from vendoo_studio.routes import extension as extension_routes
+from vendoo_studio.services import extension_connection as extension_routes
 from extension_sources import background_source
 
 EXTENSION_DIR = Path(__file__).resolve().parents[3] / "vendoo-extension"

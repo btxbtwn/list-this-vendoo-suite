@@ -63,6 +63,6 @@ async def run_send(job_id: str) -> None:
     finally:
         _finish_api_send(db, job_id)
         db.close()
-        from vendoo_studio.routes.extension import schedule_advance_job_queue
+        from vendoo_studio.services.extension_connection import schedule_advance_job_queue
 
         schedule_advance_job_queue()

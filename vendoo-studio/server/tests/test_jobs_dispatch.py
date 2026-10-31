@@ -14,7 +14,7 @@ from vendoo_studio.models.job import ABANDONED_SEND, AUTO_RETRY_EVENT, RECONNECT
 from vendoo_studio.models.registry import FieldRegistry  # noqa: F401
 from vendoo_studio.repositories.queries import JobRepo
 from vendoo_studio.services.api_job_lock import api_job_is_live, claim_api_job, release_api_job
-from vendoo_studio.routes.extension import (
+from vendoo_studio.services.extension_connection import (
     ExtensionManager,
     _resume_interrupted_sends,
     dispatch_queued_jobs,
@@ -193,7 +193,7 @@ class JobRepoActiveTest(unittest.TestCase):
         repo = JobRepo(self.db)
         claim_api_job(job.id)
         self.addCleanup(release_api_job, job.id)
-        with patch("vendoo_studio.routes.extension.extension_manager", manager), \
+        with patch("vendoo_studio.services.extension_connection.extension_manager", manager), \
              patch.object(manager, "cancel_waits_for_job") as cancel:
             _resume_interrupted_sends(repo, repo.requeue_interrupted())
         cancel.assert_called_once_with(job.id)
@@ -207,7 +207,7 @@ class JobRepoActiveTest(unittest.TestCase):
         job.current_step = "vendoo_api_photos"
         self.db.commit()
         claim_api_job(job.id)
-        with patch("vendoo_studio.routes.extension.schedule_advance_job_queue"):
+        with patch("vendoo_studio.services.extension_connection.schedule_advance_job_queue"):
             _finish_api_send(self.db, job.id)
         self.db.refresh(job)
         self.assertEqual(job.status, "queued")
@@ -272,8 +272,8 @@ class DispatchQueuedJobsTest(unittest.IsolatedAsyncioTestCase):
         manager = ExtensionManager()
         manager.connection = FakeSocket(fail=True)
         manager.paired = True
-        with patch("vendoo_studio.routes.extension.SessionLocal", self.Session), patch(
-            "vendoo_studio.routes.extension.extension_manager", manager
+        with patch("vendoo_studio.services.extension_connection.SessionLocal", self.Session), patch(
+            "vendoo_studio.services.extension_connection.extension_manager", manager
         ):
             await dispatch_queued_jobs()
 
@@ -286,8 +286,8 @@ class DispatchQueuedJobsTest(unittest.IsolatedAsyncioTestCase):
         socket = FakeSocket()
         manager.connection = socket
         manager.paired = True
-        with patch("vendoo_studio.routes.extension.SessionLocal", self.Session), patch(
-            "vendoo_studio.routes.extension.extension_manager", manager
+        with patch("vendoo_studio.services.extension_connection.SessionLocal", self.Session), patch(
+            "vendoo_studio.services.extension_connection.extension_manager", manager
         ):
             await dispatch_queued_jobs()
 
@@ -302,8 +302,8 @@ class DispatchQueuedJobsTest(unittest.IsolatedAsyncioTestCase):
         socket = FakeSocket()
         manager.connection = socket
         manager.paired = True
-        with patch("vendoo_studio.routes.extension.SessionLocal", self.Session), patch(
-            "vendoo_studio.routes.extension.extension_manager", manager
+        with patch("vendoo_studio.services.extension_connection.SessionLocal", self.Session), patch(
+            "vendoo_studio.services.extension_connection.extension_manager", manager
         ), patch(
             "vendoo_studio.services.marketplaces.selected_fillable_platforms",
             return_value=["ebay", "poshmark"],
@@ -323,7 +323,7 @@ class DispatchQueuedJobsTest(unittest.IsolatedAsyncioTestCase):
         self.job.vendoo_url = "https://web.vendoo.co/app/item/draft123"
 
         with patch(
-            "vendoo_studio.routes.extension.extension_manager", manager
+            "vendoo_studio.services.extension_connection.extension_manager", manager
         ), patch(
             "vendoo_studio.services.marketplaces.selected_fillable_platforms",
             return_value=["ebay", "poshmark"],
@@ -349,8 +349,8 @@ class DispatchQueuedJobsTest(unittest.IsolatedAsyncioTestCase):
         socket = FakeSocket()
         manager.connection = socket
         manager.paired = True
-        with patch("vendoo_studio.routes.extension.SessionLocal", self.Session), patch(
-            "vendoo_studio.routes.extension.extension_manager", manager
+        with patch("vendoo_studio.services.extension_connection.SessionLocal", self.Session), patch(
+            "vendoo_studio.services.extension_connection.extension_manager", manager
         ):
             await dispatch_queued_jobs()
 
@@ -371,8 +371,8 @@ class DispatchQueuedJobsTest(unittest.IsolatedAsyncioTestCase):
         socket = FakeSocket()
         manager.connection = socket
         manager.paired = True
-        with patch("vendoo_studio.routes.extension.SessionLocal", self.Session), patch(
-            "vendoo_studio.routes.extension.extension_manager", manager
+        with patch("vendoo_studio.services.extension_connection.SessionLocal", self.Session), patch(
+            "vendoo_studio.services.extension_connection.extension_manager", manager
         ):
             await dispatch_queued_jobs()
 
@@ -397,8 +397,8 @@ class DispatchQueuedJobsTest(unittest.IsolatedAsyncioTestCase):
         socket = FakeSocket()
         manager.connection = socket
         manager.paired = True
-        with patch("vendoo_studio.routes.extension.SessionLocal", self.Session), patch(
-            "vendoo_studio.routes.extension.extension_manager", manager
+        with patch("vendoo_studio.services.extension_connection.SessionLocal", self.Session), patch(
+            "vendoo_studio.services.extension_connection.extension_manager", manager
         ):
             await dispatch_queued_jobs()
 
@@ -422,8 +422,8 @@ class DispatchQueuedJobsTest(unittest.IsolatedAsyncioTestCase):
         socket = FakeSocket()
         manager.connection = socket
         manager.paired = True
-        with patch("vendoo_studio.routes.extension.SessionLocal", self.Session), patch(
-            "vendoo_studio.routes.extension.extension_manager", manager
+        with patch("vendoo_studio.services.extension_connection.SessionLocal", self.Session), patch(
+            "vendoo_studio.services.extension_connection.extension_manager", manager
         ):
             await dispatch_queued_jobs()
 
@@ -454,8 +454,8 @@ class DispatchQueuedJobsTest(unittest.IsolatedAsyncioTestCase):
         socket = FakeSocket()
         manager.connection = socket
         manager.paired = True
-        with patch("vendoo_studio.routes.extension.SessionLocal", self.Session), patch(
-            "vendoo_studio.routes.extension.extension_manager", manager
+        with patch("vendoo_studio.services.extension_connection.SessionLocal", self.Session), patch(
+            "vendoo_studio.services.extension_connection.extension_manager", manager
         ):
             await dispatch_queued_jobs()
 
@@ -469,8 +469,8 @@ class DispatchQueuedJobsTest(unittest.IsolatedAsyncioTestCase):
         db.commit()
         db.close()
 
-        with patch("vendoo_studio.routes.extension.SessionLocal", self.Session), patch(
-            "vendoo_studio.routes.extension.extension_manager", manager
+        with patch("vendoo_studio.services.extension_connection.SessionLocal", self.Session), patch(
+            "vendoo_studio.services.extension_connection.extension_manager", manager
         ):
             await dispatch_queued_jobs()
 
@@ -481,9 +481,9 @@ class DispatchQueuedJobsTest(unittest.IsolatedAsyncioTestCase):
 class ExtensionHandshakeTest(unittest.IsolatedAsyncioTestCase):
     async def test_handshake_accepts_without_reloading_tabs(self):
         socket = FakeSocket()
-        with patch("vendoo_studio.routes.extension.install_bundled_extension", return_value=True), patch(
-            "vendoo_studio.routes.extension.extension_reload_token_if_needed", return_value=None
-        ), patch("vendoo_studio.routes.extension.clear_extension_reload_pending") as clear:
+        with patch("vendoo_studio.services.extension_connection.install_bundled_extension", return_value=True), patch(
+            "vendoo_studio.services.extension_connection.extension_reload_token_if_needed", return_value=None
+        ), patch("vendoo_studio.services.extension_connection.clear_extension_reload_pending") as clear:
             accepted = await handshake_extension(socket, None)
 
         self.assertTrue(accepted)
@@ -492,9 +492,9 @@ class ExtensionHandshakeTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_handshake_reloads_once_when_chrome_is_behind(self):
         socket = FakeSocket()
-        with patch("vendoo_studio.routes.extension.install_bundled_extension", return_value=True), patch(
-            "vendoo_studio.routes.extension.extension_reload_token_if_needed", return_value="gen-1"
-        ) as reload_token, patch("vendoo_studio.routes.extension.clear_extension_reload_pending") as clear:
+        with patch("vendoo_studio.services.extension_connection.install_bundled_extension", return_value=True), patch(
+            "vendoo_studio.services.extension_connection.extension_reload_token_if_needed", return_value="gen-1"
+        ) as reload_token, patch("vendoo_studio.services.extension_connection.clear_extension_reload_pending") as clear:
             accepted = await handshake_extension(socket, None, "0.2.15")
 
         self.assertFalse(accepted)
@@ -505,9 +505,9 @@ class ExtensionHandshakeTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_handshake_accepts_after_reload_generation_matches(self):
         socket = FakeSocket()
-        with patch("vendoo_studio.routes.extension.install_bundled_extension", return_value=True), patch(
-            "vendoo_studio.routes.extension.extension_reload_token_if_needed", return_value=None
-        ), patch("vendoo_studio.routes.extension.clear_extension_reload_pending") as clear:
+        with patch("vendoo_studio.services.extension_connection.install_bundled_extension", return_value=True), patch(
+            "vendoo_studio.services.extension_connection.extension_reload_token_if_needed", return_value=None
+        ), patch("vendoo_studio.services.extension_connection.clear_extension_reload_pending") as clear:
             accepted = await handshake_extension(socket, "gen-1", "0.2.15")
 
         self.assertTrue(accepted)
@@ -520,8 +520,8 @@ class ExtensionStatusRouteTest(unittest.TestCase):
         manager = ExtensionManager()
         manager.version = "0.2.5"
         manager.reload_generation = None
-        with patch("vendoo_studio.routes.extension.extension_manager", manager), patch(
-            "vendoo_studio.routes.extension.extension_build_status",
+        with patch("vendoo_studio.services.extension_connection.extension_manager", manager), patch(
+            "vendoo_studio.services.extension_connection.extension_build_status",
             return_value={
                 "expected_version": "0.2.6",
                 "version": "0.2.5",
@@ -718,7 +718,7 @@ class QueuedSendInterruptedTest(unittest.IsolatedAsyncioTestCase):
         with patch("vendoo_studio.services.send_queue.SessionLocal", Session), \
              patch("vendoo_studio.routes.vendoo_api._create_claimed_draft", cut_off), \
              patch("vendoo_studio.services.listing_provider.provider_is_configured", return_value=False), \
-             patch("vendoo_studio.routes.extension.schedule_advance_job_queue"):
+             patch("vendoo_studio.services.extension_connection.schedule_advance_job_queue"):
             await run_send(job_id)
 
         check = Session()

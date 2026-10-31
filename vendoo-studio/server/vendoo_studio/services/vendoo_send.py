@@ -10,6 +10,15 @@ from sqlalchemy.orm import object_session
 
 from vendoo_studio.repositories.queries import JobRepo
 
+CREATE_STEP = "vendoo_api_create"
+CREATED_STEP = "vendoo_api_created"
+# Update Vendoo opens by reading the draft it is about to write, so that is
+# the step the editor's job card names until category resolution starts.
+SAVE_STEP = "vendoo_api_read"
+SAVED_STEP = "vendoo_api_saved"
+PATCH_STEP = "vendoo_api_patch"
+
+
 log = logging.getLogger("vendoo_studio.vendoo_send")
 
 

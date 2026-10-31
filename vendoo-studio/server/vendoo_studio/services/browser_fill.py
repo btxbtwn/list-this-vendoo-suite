@@ -46,7 +46,7 @@ async def apply_patches(
     *,
     announce: bool = True,
 ) -> tuple[bool, str | None]:
-    from vendoo_studio.routes.extension import dispatch_fill_fields, extension_manager
+    from vendoo_studio.services.extension_connection import dispatch_fill_fields, extension_manager
     from vendoo_studio.database import SessionLocal
 
     if not patches:

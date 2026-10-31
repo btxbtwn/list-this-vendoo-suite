@@ -23,13 +23,13 @@ class BrowserBridgeError(RuntimeError):
 
 
 def _manager():
-    from vendoo_studio.routes.extension import extension_manager
+    from vendoo_studio.services.extension_connection import extension_manager
 
     return extension_manager
 
 
 def _require_draft(job) -> None:
-    from vendoo_studio.routes.extension import durable_vendoo_item_id
+    from vendoo_studio.services.extension_connection import durable_vendoo_item_id
 
     if not durable_vendoo_item_id(job.vendoo_item_id) and not job.vendoo_url:
         raise BrowserBridgeError("Send the listing to Vendoo first so there is a draft to open.")
@@ -62,7 +62,7 @@ async def request(job, message_type: str, payload: dict[str, Any] | None = None,
 
 
 async def open_session(job, marketplace: str | None = None) -> dict:
-    from vendoo_studio.routes.extension import durable_vendoo_item_id
+    from vendoo_studio.services.extension_connection import durable_vendoo_item_id
 
     _require_draft(job)
     return await request(job, "browser.open", {

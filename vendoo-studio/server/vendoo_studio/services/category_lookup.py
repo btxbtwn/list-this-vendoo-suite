@@ -365,7 +365,7 @@ async def resolve_listing_category(
 ) -> dict[str, Any]:
     """Search the live Vendoo category picker and save the matching leaf onto the listing."""
     from vendoo_studio.repositories.queries import ListingRepo
-    from vendoo_studio.routes.extension import (
+    from vendoo_studio.services.extension_connection import (
         dispatch_search_categories,
         extension_manager,
     )

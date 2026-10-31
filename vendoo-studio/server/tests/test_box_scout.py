@@ -1031,7 +1031,7 @@ class SoldListingsTest(unittest.TestCase):
         self.assertEqual(sold_listings.ebay_sold(["y2k jeans"], self.TODAY), {})
 
     def test_what_chrome_read_is_parsed_per_search(self):
-        from vendoo_studio.routes.extension import extension_manager
+        from vendoo_studio.services.extension_connection import extension_manager
 
         async def read(queries):
             return {"ok": False, "error": "eBay did not show search results",

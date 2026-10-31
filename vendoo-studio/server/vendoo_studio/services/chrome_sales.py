@@ -328,7 +328,7 @@ async def check_item(db: Session, conv_id: str, *, session_factory=None) -> dict
     what a marketplace tells it. Only the listing IDs travel, and nothing on
     any marketplace changes.
     """
-    from vendoo_studio.routes.extension import extension_manager
+    from vendoo_studio.services.extension_connection import extension_manager
     from vendoo_studio.services import browser_bridge
 
     result: dict = {"ok": True, "checked": [], "recorded": [], "skipped": None}

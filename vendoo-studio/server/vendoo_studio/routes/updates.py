@@ -37,7 +37,7 @@ async def _after_app_replace(result: dict, cancelled_jobs: list[str]) -> dict:
                 install_bundled_extension()
             except ChromeBridgeError:
                 pass
-            from vendoo_studio.routes.extension import request_extension_reload
+            from vendoo_studio.services.extension_connection import request_extension_reload
 
             await request_extension_reload(generation)
         result["extension_reload"] = True

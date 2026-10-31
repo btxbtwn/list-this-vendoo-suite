@@ -23,7 +23,7 @@ def status(db: Session = Depends(get_db)):
     from vendoo_studio.config import user_data_root
     from vendoo_studio.models.conversation import Conversation
     from vendoo_studio.models.job import Job
-    from vendoo_studio.routes.extension import extension_manager
+    from vendoo_studio.services.extension_connection import extension_manager
     from vendoo_studio.services.listing_provider import provider_is_configured
 
     conversations = db.query(Conversation).count()

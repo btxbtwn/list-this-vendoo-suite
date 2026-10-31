@@ -292,7 +292,7 @@ def resolution_timeout_seconds(gap_count: int) -> float:
 
 
 async def complete_job(db: Session, job_id: str) -> None:
-    from vendoo_studio.routes.extension import dispatch_fill_fields, extension_manager
+    from vendoo_studio.services.extension_connection import dispatch_fill_fields, extension_manager
     from vendoo_studio.services.schema_probe import is_schema_probe_job
 
     repo = JobRepo(db)
@@ -390,7 +390,7 @@ async def complete_job(db: Session, job_id: str) -> None:
         ConversationRepo(db).update_status(job.conversation_id, "completed")
         ConversationRepo(db).add_message(job.conversation_id, "system",
             "Saved draft verified complete across the selected marketplaces. Nothing was published.", provider="system", model="")
-        from vendoo_studio.routes.extension import dispatch_queued_jobs
+        from vendoo_studio.services.extension_connection import dispatch_queued_jobs
         await dispatch_queued_jobs()
         return
 

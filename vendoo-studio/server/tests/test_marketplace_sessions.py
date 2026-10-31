@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, patch
 from fastapi.testclient import TestClient
 
 from vendoo_studio.main import app
-from vendoo_studio.routes.extension import _public_connect, _public_session
+from vendoo_studio.services.extension_connection import _public_connect, _public_session
 from vendoo_studio.services.browser_bridge import BrowserBridgeError
 
 

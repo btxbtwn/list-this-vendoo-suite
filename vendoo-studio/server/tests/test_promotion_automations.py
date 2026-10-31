@@ -47,8 +47,8 @@ class PromotionAutomationsTest(unittest.TestCase):
         self.db.commit()
         self.bridge = self.enterContext(patch("vendoo_studio.services.listing_promotions.browser_bridge.request", new_callable=AsyncMock))
         self.bridge.side_effect = self.answer
-        self.enterContext(patch("vendoo_studio.routes.extension.extension_manager", SimpleNamespace(connected=True)))
-        self.enterContext(patch("vendoo_studio.routes.extension.schedule_advance_job_queue", lambda: None))
+        self.enterContext(patch("vendoo_studio.services.extension_connection.extension_manager", SimpleNamespace(connected=True)))
+        self.enterContext(patch("vendoo_studio.services.extension_connection.schedule_advance_job_queue", lambda: None))
         self.likes = {post: 3 for _conv, post in self.items}
         self.sent = {}
         self.on_check = None
@@ -571,7 +571,7 @@ class PromotionAutomationsTest(unittest.TestCase):
         saved = self.create(SHARE)
         self.enable(saved["id"])
         self.due(saved["id"])
-        with patch("vendoo_studio.routes.extension.extension_manager", SimpleNamespace(connected=False)):
+        with patch("vendoo_studio.services.extension_connection.extension_manager", SimpleNamespace(connected=False)):
             self.tick()
         self.assertIn("Connect Chrome", self.db.query(PromotionRun).one().note)
         self.bridge.assert_not_called()

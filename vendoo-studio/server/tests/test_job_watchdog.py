@@ -14,7 +14,7 @@ from sqlalchemy.orm import sessionmaker
 from vendoo_studio.database import Base, make_engine
 from vendoo_studio.models.job import ABANDONED_SEND, AUTO_RETRY_EVENT, Job, JobEvent
 from vendoo_studio.repositories.queries import ConversationRepo, JobRepo, ListingRepo
-from vendoo_studio.routes.extension import ExtensionManager, dispatch_queued_jobs
+from vendoo_studio.services.extension_connection import ExtensionManager, dispatch_queued_jobs
 from vendoo_studio.services import job_watchdog
 from vendoo_studio.services.api_job_lock import claim_api_job, release_api_job
 from vendoo_studio.services.browser_bridge import BrowserBridgeError
@@ -43,7 +43,7 @@ class FailStalledJobsTest(unittest.TestCase):
     def setUp(self):
         self.db = _sessions(self)()
         self.manager = _ConnectedManager()
-        p = patch("vendoo_studio.routes.extension.extension_manager", self.manager)
+        p = patch("vendoo_studio.services.extension_connection.extension_manager", self.manager)
         p.start()
         self.addCleanup(p.stop)
         self.addCleanup(self.db.close)
@@ -173,8 +173,8 @@ class SweepTest(unittest.IsolatedAsyncioTestCase):
             return real(session, now=datetime.now(UTC) + STALL_AFTER + timedelta(minutes=1))
 
         with patch("vendoo_studio.database.SessionLocal", sessions), \
-             patch("vendoo_studio.routes.extension.extension_manager", manager), \
-             patch("vendoo_studio.routes.extension.dispatch_queued_jobs", AsyncMock()) as dispatch, \
+             patch("vendoo_studio.services.extension_connection.extension_manager", manager), \
+             patch("vendoo_studio.services.extension_connection.dispatch_queued_jobs", AsyncMock()) as dispatch, \
              patch("vendoo_studio.services.native_marketplaces.reconcile", AsyncMock(return_value=0)) as reconcile, \
              patch.object(job_watchdog, "fail_stalled_jobs", fail):
             self.assertEqual(await job_watchdog.sweep(), [job.id])
@@ -198,10 +198,10 @@ class QueueAfterStallTest(unittest.IsolatedAsyncioTestCase):
         self.manager = _ConnectedManager()
         self.patches = [
             patch("vendoo_studio.database.SessionLocal", self.sessions),
-            patch("vendoo_studio.routes.extension.SessionLocal", self.sessions),
+            patch("vendoo_studio.services.extension_connection.SessionLocal", self.sessions),
             patch("vendoo_studio.services.send_queue.SessionLocal", self.sessions),
-            patch("vendoo_studio.routes.extension.schedule_advance_job_queue"),
-            patch("vendoo_studio.routes.extension.extension_manager", self.manager),
+            patch("vendoo_studio.services.extension_connection.schedule_advance_job_queue"),
+            patch("vendoo_studio.services.extension_connection.extension_manager", self.manager),
             patch("vendoo_studio.services.streaming.spawn", self.spawn),
             patch("vendoo_studio.services.listing_provider.provider_is_configured", return_value=False),
         ]

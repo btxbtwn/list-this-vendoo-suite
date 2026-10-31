@@ -47,8 +47,8 @@ class EtsyListingsTest(unittest.TestCase):
             Path(self.temp, name).write_bytes(b"image")
             ConversationRepo(self.db).add_photo(self.conv.id, name, name, "image/jpeg", 5)
         self.enterContext(patch.object(etsy_listings, "get_marketplace_accounts", return_value={"etsy": {"accountId": "123", "accessToken": "never-expose"}}))
-        self.enterContext(patch("vendoo_studio.routes.extension.extension_manager", SimpleNamespace(connected=False)))
-        self.enterContext(patch("vendoo_studio.routes.extension.schedule_advance_job_queue"))
+        self.enterContext(patch("vendoo_studio.services.extension_connection.extension_manager", SimpleNamespace(connected=False)))
+        self.enterContext(patch("vendoo_studio.services.extension_connection.schedule_advance_job_queue"))
         self.bridge = self.enterContext(patch("vendoo_studio.services.native_marketplaces.browser_bridge.request", new_callable=AsyncMock))
         self.calls = []
         self.remote = None

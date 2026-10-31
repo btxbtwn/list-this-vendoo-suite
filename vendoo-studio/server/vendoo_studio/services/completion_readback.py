@@ -179,7 +179,7 @@ async def repair_category_mismatches(db: Session, job, mismatches: list[dict]) -
     Returns True when repair was dispatched (caller should stop). False means retries
     are exhausted and the job should pause.
     """
-    from vendoo_studio.routes.extension import dispatch_fill_fields, extension_manager
+    from vendoo_studio.services.extension_connection import dispatch_fill_fields, extension_manager
 
     repo = JobRepo(db)
     events = repo.get_events(job.id)
@@ -266,7 +266,7 @@ async def retry_incomplete_readback(
     Returns True when a retry was scheduled (caller should stop). False means retries
     are exhausted and the job should pause for review.
     """
-    from vendoo_studio.routes.extension import dispatch_fill_fields, extension_manager
+    from vendoo_studio.services.extension_connection import dispatch_fill_fields, extension_manager
 
     repo = JobRepo(db)
     events = repo.get_events(job.id)

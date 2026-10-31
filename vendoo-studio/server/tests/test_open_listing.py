@@ -16,7 +16,7 @@ from vendoo_studio.models.conversation import Conversation
 from vendoo_studio.models.job import Job
 from vendoo_studio.models.listing import Listing, ListingRevision  # noqa: F401
 from vendoo_studio.models.registry import FieldRegistry  # noqa: F401
-from vendoo_studio.routes.extension import extension_manager
+from vendoo_studio.services.extension_connection import extension_manager
 
 
 class OpenListingRouteTest(unittest.TestCase):
@@ -74,7 +74,7 @@ class OpenListingRouteTest(unittest.TestCase):
     def test_open_listing_uses_extension_when_connected(self):
         self._connect_chrome()
         with patch(
-            "vendoo_studio.routes.extension.dispatch_open_listing",
+            "vendoo_studio.services.extension_connection.dispatch_open_listing",
             new=AsyncMock(return_value=True),
         ) as dispatch, patch(
             "vendoo_studio.services.chrome_bridge.launch_studio_chrome",
@@ -125,7 +125,7 @@ class OpenListingRouteTest(unittest.TestCase):
     def test_open_listing_falls_back_when_extension_send_fails(self):
         self._connect_chrome()
         with patch(
-            "vendoo_studio.routes.extension.dispatch_open_listing",
+            "vendoo_studio.services.extension_connection.dispatch_open_listing",
             new=AsyncMock(return_value=False),
         ), patch("vendoo_studio.services.chrome_bridge.launch_studio_chrome") as launch:
             launch.return_value = {"ok": True}
@@ -148,7 +148,7 @@ class OpenListingRouteTest(unittest.TestCase):
             return {"ok": True}
 
         with patch(
-            "vendoo_studio.routes.extension.dispatch_open_listing", new=dispatch,
+            "vendoo_studio.services.extension_connection.dispatch_open_listing", new=dispatch,
         ), patch(
             "vendoo_studio.services.chrome_bridge.launch_studio_chrome", new=launch,
         ):
@@ -189,31 +189,31 @@ class DispatchOpenListingTest(unittest.IsolatedAsyncioTestCase):
         return connection
 
     async def test_opened_when_the_extension_confirms(self):
-        from vendoo_studio.routes.extension import dispatch_open_listing
+        from vendoo_studio.services.extension_connection import dispatch_open_listing
 
         self._connection(reply={"ok": True})
         self.assertTrue(await dispatch_open_listing(self.job))
         self.assertEqual(self.sent[0]["type"], "job.open_listing")
 
     async def test_not_opened_when_the_extension_reports_failure(self):
-        from vendoo_studio.routes.extension import dispatch_open_listing
+        from vendoo_studio.services.extension_connection import dispatch_open_listing
 
         self._connection(reply={"ok": False, "error": "no window"})
         self.assertFalse(await dispatch_open_listing(self.job))
 
     async def test_not_opened_when_the_extension_never_answers(self):
-        from vendoo_studio.routes.extension import dispatch_open_listing
+        from vendoo_studio.services.extension_connection import dispatch_open_listing
 
         self._connection()
-        with patch("vendoo_studio.routes.extension.OPEN_LISTING_TIMEOUT_SEC", 0.05):
+        with patch("vendoo_studio.services.extension_connection.OPEN_LISTING_TIMEOUT_SEC", 0.05):
             self.assertFalse(await dispatch_open_listing(self.job))
         self.assertEqual(extension_manager._waits, {})
 
     async def test_a_send_that_never_goes_out_gives_up_and_drops_the_socket(self):
-        from vendoo_studio.routes.extension import dispatch_open_listing
+        from vendoo_studio.services.extension_connection import dispatch_open_listing
 
         connection = self._connection(hang=True)
-        with patch("vendoo_studio.routes.extension.SEND_TIMEOUT_SEC", 0.05):
+        with patch("vendoo_studio.services.extension_connection.SEND_TIMEOUT_SEC", 0.05):
             self.assertFalse(await dispatch_open_listing(self.job))
         self.assertFalse(extension_manager.connected)
         connection.close.assert_awaited()

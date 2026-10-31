@@ -16,9 +16,9 @@ def test_qa_bridge_stamp_uses_the_isolated_api_port():
 def test_bridge_reload_only_syncs_files_and_messages_the_connected_worker():
     with (patch("vendoo_studio.services.chrome_bridge.sync_bundled_extension") as sync,
           patch("vendoo_studio.services.chrome_bridge.relaunch_studio_chrome") as launch,
-          patch("vendoo_studio.routes.extension.extension_manager", SimpleNamespace(connected=True, version="test", reload_generation=None, build="old")),
-          patch("vendoo_studio.routes.extension.extension_reload_token_if_needed", return_value="reload-token"),
-          patch("vendoo_studio.routes.extension.request_extension_reload", new_callable=AsyncMock, return_value=True) as reload):
+          patch("vendoo_studio.services.extension_connection.extension_manager", SimpleNamespace(connected=True, version="test", reload_generation=None, build="old")),
+          patch("vendoo_studio.services.extension_connection.extension_reload_token_if_needed", return_value="reload-token"),
+          patch("vendoo_studio.services.extension_connection.request_extension_reload", new_callable=AsyncMock, return_value=True) as reload):
         response = TestClient(app).post("/api/extension/reload")
     assert response.status_code == 200
     assert response.json() == {"ok": True, "sent": True}
@@ -30,7 +30,7 @@ def test_bridge_reload_only_syncs_files_and_messages_the_connected_worker():
 def test_bridge_reload_never_opens_chrome_when_disconnected():
     with (patch("vendoo_studio.services.chrome_bridge.sync_bundled_extension"),
           patch("vendoo_studio.services.chrome_bridge.relaunch_studio_chrome") as launch,
-          patch("vendoo_studio.routes.extension.extension_manager", SimpleNamespace(connected=False))):
+          patch("vendoo_studio.services.extension_connection.extension_manager", SimpleNamespace(connected=False))):
         response = TestClient(app).post("/api/extension/reload")
     assert response.status_code == 409
     launch.assert_not_called()

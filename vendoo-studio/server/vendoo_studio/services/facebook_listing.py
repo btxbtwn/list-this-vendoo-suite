@@ -34,7 +34,7 @@ def _reply(raw: object) -> dict:
 
 async def check(db: Session, conv_id: str) -> dict:
     """The linked Facebook listing's state now, and a recorded sale if Facebook says it sold."""
-    from vendoo_studio.routes.extension import extension_manager
+    from vendoo_studio.services.extension_connection import extension_manager
     from vendoo_studio.services.chrome_sales import record_reported_sales
     from vendoo_studio.services.marketplace_accounts import announce_sales
 

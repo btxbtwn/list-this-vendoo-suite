@@ -14,7 +14,7 @@ from vendoo_studio.models.conversation import Conversation
 from vendoo_studio.models.job import Job
 from vendoo_studio.models.listing import Listing, ListingRevision  # noqa: F401
 from vendoo_studio.models.registry import FieldRegistry  # noqa: F401
-from vendoo_studio.routes.extension import extension_manager
+from vendoo_studio.services.extension_connection import extension_manager
 
 
 class VendooItemRouteTest(unittest.TestCase):
@@ -200,7 +200,7 @@ class VendooItemRouteTest(unittest.TestCase):
         self.db.commit()
 
         dispatch = AsyncMock(return_value=True)
-        with patch("vendoo_studio.routes.extension.dispatch_vendoo_get", new=dispatch), patch(
+        with patch("vendoo_studio.services.extension_connection.dispatch_vendoo_get", new=dispatch), patch(
             "vendoo_studio.services.vendoo_create.run_ops",
             new=AsyncMock(side_effect=ok_ops),
         ):
@@ -227,7 +227,7 @@ class VendooItemRouteTest(unittest.TestCase):
             })
             return True
 
-        with patch("vendoo_studio.routes.extension.dispatch_vendoo_get", new=AsyncMock(side_effect=fake_dispatch)):
+        with patch("vendoo_studio.services.extension_connection.dispatch_vendoo_get", new=AsyncMock(side_effect=fake_dispatch)):
             response = self.client.post(
                 f"/api/jobs/{self.job.id}/vendoo-item?refresh=true&resolve_photos=true"
             )

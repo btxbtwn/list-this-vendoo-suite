@@ -223,7 +223,7 @@ def bind_probe_draft(db: Session, job: Job) -> None:
 async def kickoff_schema_probe(conv_id: str, listing: dict | None, *, reason: str = "generate") -> dict[str, Any]:
     """Create a probe job (if eligible) and ask the extension dispatcher to run it."""
     from vendoo_studio.database import SessionLocal
-    from vendoo_studio.routes.extension import dispatch_queued_jobs
+    from vendoo_studio.services.extension_connection import dispatch_queued_jobs
 
     db = SessionLocal()
     try:

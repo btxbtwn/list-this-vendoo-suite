@@ -6,6 +6,10 @@ file: Settings → General → About → What's new.
 
 Entry format: `## <version> — <YYYY-MM-DD>` followed by bullets.
 
+## 0.1.611 — 2026-10-31
+
+- Behind the scenes, Chrome connection and draft-send handling now live together in a service, making future fixes easier to check without changing how listings work.
+
 ## 0.1.610 — 2026-10-31
 
 - Try the hosted web workspace and iPhone drafts safely on local sample accounts, with no cloud account or keys. Automatic tests now check the hosted workspace and the packaged Mac app before release.

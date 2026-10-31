@@ -44,10 +44,10 @@ class CompletionTest(unittest.IsolatedAsyncioTestCase):
             "general": {"category": {"path": "Clothing > Tops"}, "fields": [{"label": "Title", "value": "Tee", "required": True}]},
             "ebay": {"category": {"path": "Clothing > Shirts"}, "fields": [{"label": "Material", "value": "", "required": True, "selector": "#material"}]},
         }}
-        self.manager_patch = patch("vendoo_studio.routes.extension.extension_manager")
+        self.manager_patch = patch("vendoo_studio.services.extension_connection.extension_manager")
         self.manager = self.manager_patch.start()
         self.manager.connected = True
-        self.dispatch_patch = patch("vendoo_studio.routes.extension.dispatch_fill_fields", new_callable=AsyncMock)
+        self.dispatch_patch = patch("vendoo_studio.services.extension_connection.dispatch_fill_fields", new_callable=AsyncMock)
         self.dispatch = self.dispatch_patch.start()
         self.dispatch.return_value = True
 
@@ -1105,7 +1105,7 @@ class CompletionTest(unittest.IsolatedAsyncioTestCase):
         self.job.status = "completed"
         self.db.commit()
         dispatch = AsyncMock()
-        with patch("vendoo_studio.routes.extension.dispatch_queued_jobs", dispatch), \
+        with patch("vendoo_studio.services.extension_connection.dispatch_queued_jobs", dispatch), \
              patch("vendoo_studio.services.marketplaces.selected_fillable_platforms", return_value=["ebay"]), \
              patch("vendoo_studio.services.category_selection.select_categories", new=AsyncMock(
                  return_value={"general": "Clothing > Tops", "ebay": "Clothing > Shirts"})):

@@ -18,7 +18,7 @@ from sqlalchemy.pool import StaticPool
 
 from vendoo_studio.database import Base, get_db
 from vendoo_studio.main import app
-from vendoo_studio.routes.extension import ExtensionManager
+from vendoo_studio.services.extension_connection import ExtensionManager
 
 
 class Incumbent:
@@ -58,13 +58,13 @@ class DuplicateCopyTest(unittest.TestCase):
             return True
 
         patches = [
-            patch("vendoo_studio.routes.extension.SessionLocal", self.Session),
-            patch("vendoo_studio.routes.extension.extension_manager", self.manager),
+            patch("vendoo_studio.services.extension_connection.SessionLocal", self.Session),
+            patch("vendoo_studio.services.extension_connection.extension_manager", self.manager),
             patch.object(self.manager, "verify_token", return_value=True),
-            patch("vendoo_studio.routes.extension._websocket_allowed", return_value=True),
-            patch("vendoo_studio.routes.extension.handshake_extension", side_effect=handshake),
-            patch("vendoo_studio.routes.extension.dispatch_queued_jobs", AsyncMock()),
-            patch("vendoo_studio.routes.extension.extension_in_lockstep", side_effect=lockstep),
+            patch("vendoo_studio.services.extension_connection._websocket_allowed", return_value=True),
+            patch("vendoo_studio.services.extension_connection.handshake_extension", side_effect=handshake),
+            patch("vendoo_studio.services.extension_connection.dispatch_queued_jobs", AsyncMock()),
+            patch("vendoo_studio.services.extension_connection.extension_in_lockstep", side_effect=lockstep),
         ]
         for patch_object in patches:
             patch_object.start()

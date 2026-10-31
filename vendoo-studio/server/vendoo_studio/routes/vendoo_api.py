@@ -23,16 +23,11 @@ from vendoo_studio.repositories.queries import ConversationRepo, JobRepo, Listin
 from vendoo_studio.services.browser_bridge import BrowserBridgeError
 from vendoo_studio.services.vendoo_create import VendooCreateError
 
+from vendoo_studio.services.vendoo_send import CREATE_STEP, CREATED_STEP, SAVE_STEP, SAVED_STEP, PATCH_STEP
+
 router = APIRouter(tags=["vendoo-api"])
 log = logging.getLogger("vendoo_studio.vendoo_api_routes")
 
-CREATE_STEP = "vendoo_api_create"
-CREATED_STEP = "vendoo_api_created"
-# Update Vendoo opens by reading the draft it is about to write, so that is
-# the step the editor's job card names until category resolution starts.
-SAVE_STEP = "vendoo_api_read"
-SAVED_STEP = "vendoo_api_saved"
-PATCH_STEP = "vendoo_api_patch"
 
 
 def _mark_vendoo_api_step(job, step: str) -> None:
@@ -138,7 +133,7 @@ def _finish_api_send(db: Session, job_id: str) -> None:
         # The worker has stopped, so a send it was cut off from can safely
         # start again. Covers a closed request and a Chrome reconnect alike.
         JobRepo(db).requeue_interrupted_send(job_id)
-        from vendoo_studio.routes.extension import schedule_advance_job_queue
+        from vendoo_studio.services.extension_connection import schedule_advance_job_queue
 
         schedule_advance_job_queue()
 

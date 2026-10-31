@@ -14,7 +14,7 @@ from sqlalchemy.orm import sessionmaker
 from vendoo_studio.database import Base, get_db
 from vendoo_studio.main import app
 from vendoo_studio.repositories.queries import ConversationRepo, JobRepo, ListingRepo
-from vendoo_studio.routes.extension import ExtensionManager
+from vendoo_studio.services.extension_connection import ExtensionManager
 import vendoo_studio.services.listing_completion as listing_completion
 
 
@@ -60,13 +60,13 @@ class CompletionTransportTest(unittest.TestCase):
         }}
         app.dependency_overrides[get_db] = get_test_db
         try:
-            with patch("vendoo_studio.routes.extension.SessionLocal", Session), \
+            with patch("vendoo_studio.services.extension_connection.SessionLocal", Session), \
                  patch("vendoo_studio.services.listing_completion.SessionLocal", Session), \
-                 patch("vendoo_studio.routes.extension.extension_manager", manager), \
+                 patch("vendoo_studio.services.extension_connection.extension_manager", manager), \
                  patch.object(manager, "verify_token", return_value=True), \
-                 patch("vendoo_studio.routes.extension._websocket_allowed", return_value=True), \
-                 patch("vendoo_studio.routes.extension.handshake_extension", side_effect=handshake), \
-                 patch("vendoo_studio.routes.extension._warm_label_catalog", new=AsyncMock()), \
+                 patch("vendoo_studio.services.extension_connection._websocket_allowed", return_value=True), \
+                 patch("vendoo_studio.services.extension_connection.handshake_extension", side_effect=handshake), \
+                 patch("vendoo_studio.services.extension_connection._warm_label_catalog", new=AsyncMock()), \
                  patch("vendoo_studio.services.listing_completion.get_listing_provider", return_value=Assistant()):
                 client = TestClient(app)
                 with client.websocket_connect("/api/extension/ws") as ws:

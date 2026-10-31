@@ -67,7 +67,7 @@ async def enqueue_send(body: SendJobRequest, db: Session = Depends(get_db)):
     from vendoo_studio.services.streaming import active_generation
     from vendoo_studio.services import activity
     from vendoo_studio.services.vendoo_import import vendoo_binding
-    from vendoo_studio.routes.extension import schedule_advance_job_queue
+    from vendoo_studio.services.extension_connection import schedule_advance_job_queue
 
     conv = ConversationRepo(db).get(body.conversation_id)
     if not conv:
@@ -106,7 +106,7 @@ async def enqueue_send(body: SendJobRequest, db: Session = Depends(get_db)):
 async def get_queue(db: Session = Depends(get_db)):
     from vendoo_studio.services import activity
     from vendoo_studio.services.streaming import active_generations
-    from vendoo_studio.routes.extension import schedule_advance_job_queue
+    from vendoo_studio.services.extension_connection import schedule_advance_job_queue
 
     schedule_advance_job_queue()
     from vendoo_studio.models.conversation import Conversation
@@ -370,7 +370,7 @@ async def get_vendoo_item(
 ):
     import uuid
 
-    from vendoo_studio.routes.extension import (
+    from vendoo_studio.services.extension_connection import (
         VENDOO_GET_TIMEOUT_SEC,
         dispatch_vendoo_get,
         extension_manager,
@@ -529,7 +529,7 @@ async def get_vendoo_item(
             statuses=statuses,
         )
 
-    from vendoo_studio.routes.extension import durable_vendoo_item_id
+    from vendoo_studio.services.extension_connection import durable_vendoo_item_id
     from vendoo_studio.services.browser_bridge import BrowserBridgeError
     from vendoo_studio.services.vendoo_create import ITEM_READ_TIMEOUT_SEC, VendooCreateError, run_ops
 
@@ -616,7 +616,7 @@ async def import_draft(job_id: str, db: Session = Depends(get_db)):
     The cached draft holds marketplace status and nothing else, so the fields
     come from Vendoo on the way in rather than from whatever was last seen.
     """
-    from vendoo_studio.routes.extension import durable_vendoo_item_id
+    from vendoo_studio.services.extension_connection import durable_vendoo_item_id
     from vendoo_studio.services.browser_bridge import BrowserBridgeError
     from vendoo_studio.services.vendoo_create import ITEM_READ_TIMEOUT_SEC, VendooCreateError, run_ops
     from vendoo_studio.services.vendoo_import import import_vendoo_draft
@@ -683,7 +683,7 @@ async def resolve_category(
     body: ResolveCategoryRequest | None = None,
     db: Session = Depends(get_db),
 ):
-    from vendoo_studio.routes.extension import extension_manager
+    from vendoo_studio.services.extension_connection import extension_manager
     from vendoo_studio.services.category_lookup import resolve_listing_category
 
     repo = JobRepo(db)
@@ -724,7 +724,7 @@ class OpenListingResponse(BaseModel):
 
 @router.post("/{job_id}/open", response_model=OpenListingResponse)
 async def open_listing(job_id: str, db: Session = Depends(get_db)):
-    from vendoo_studio.routes.extension import dispatch_open_listing, extension_manager
+    from vendoo_studio.services.extension_connection import dispatch_open_listing, extension_manager
     from vendoo_studio.services.chrome_bridge import ChromeBridgeError, launch_studio_chrome, listing_url_for_job
 
     repo = JobRepo(db)
@@ -777,7 +777,7 @@ async def cancel_job(job_id: str, db: Session = Depends(get_db)):
     repo.add_event(job_id, "cancelled")
 
     from vendoo_studio.models.protocol import ProtocolMessage
-    from vendoo_studio.routes.extension import dispatch_queued_jobs, extension_manager
+    from vendoo_studio.services.extension_connection import dispatch_queued_jobs, extension_manager
     # Drop in-flight job.vendoo_api waits so API create/save stops promptly.
     extension_manager.cancel_waits_for_job(job_id)
     await extension_manager.send_message(ProtocolMessage(

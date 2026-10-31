@@ -346,7 +346,7 @@ def _plan(marketplace: str, kind: str, record: dict, revision_id: str) -> list[s
 
 
 async def _preflight(db: Session, conv_id: str, marketplace: str, body: ListRequest) -> tuple[dict, list]:
-    from vendoo_studio.routes.extension import extension_manager
+    from vendoo_studio.services.extension_connection import extension_manager
     from vendoo_studio.services import activity
     from vendoo_studio.services.streaming import active_generation
 
@@ -609,7 +609,7 @@ def _result_context(db: Session, conv_id: str, marketplace: str, record: dict, s
 
 async def _send_cancel(operation_id: str) -> None:
     from vendoo_studio.models.protocol import ProtocolMessage
-    from vendoo_studio.routes.extension import extension_manager
+    from vendoo_studio.services.extension_connection import extension_manager
 
     # Chrome journals the action under its operation id, so that is what it cancels.
     await extension_manager.send_message(ProtocolMessage(
@@ -703,7 +703,7 @@ def _finish_job(db: Session, job_id: str, conv_id: str, marketplace: str) -> Non
 async def run_job(job_id: str, conv_id: str, marketplace: str, steps: list[str], options: dict) -> None:
     """Run a List or Update job's steps in order, holding the automation slot until the last answer."""
     from vendoo_studio.database import SessionLocal
-    from vendoo_studio.routes.extension import schedule_advance_job_queue
+    from vendoo_studio.services.extension_connection import schedule_advance_job_queue
 
     db = SessionLocal()
     try:
@@ -816,7 +816,7 @@ async def _read_result(db: Session, conv_id: str, marketplace: str, record: dict
 
 async def check_result(conv_id: str, marketplace: Marketplace, db: Session, body: CheckRequest | None = None) -> dict:
     """Read-only: ask the marketplace what the last action did, and record it."""
-    from vendoo_studio.routes.extension import extension_manager, schedule_advance_job_queue
+    from vendoo_studio.services.extension_connection import extension_manager, schedule_advance_job_queue
 
     _conversation(db, conv_id)
     record = _record(db, conv_id, marketplace)
@@ -918,7 +918,7 @@ async def reconcile(*, chrome: bool) -> int:
 
 async def reconcile_then_dispatch() -> None:
     """On Chrome reconnect: settle what Chrome may have finished, then start the queue."""
-    from vendoo_studio.routes.extension import dispatch_queued_jobs
+    from vendoo_studio.services.extension_connection import dispatch_queued_jobs
 
     try:
         await reconcile(chrome=True)
@@ -929,7 +929,7 @@ async def reconcile_then_dispatch() -> None:
 
 async def inspect_page(conv_id: str, marketplace: InspectionMarketplace, body: InspectRequest, db: Session):
     """Read a marketplace page's form. Holds the automation slot so a Send cannot start into a busy Chrome."""
-    from vendoo_studio.routes.extension import schedule_advance_job_queue
+    from vendoo_studio.services.extension_connection import schedule_advance_job_queue
 
     _conversation(db, conv_id)
     repo = JobRepo(db)

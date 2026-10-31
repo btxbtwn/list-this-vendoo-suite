@@ -156,7 +156,7 @@ def test_an_approved_send_waits_for_a_new_review_after_a_form_photo_change(env):
     with patch("vendoo_studio.services.send_queue.SessionLocal", env.sessions), \
          patch("vendoo_studio.routes.vendoo_api._create_claimed_draft") as create, \
          patch("vendoo_studio.services.listing_provider.provider_is_configured", return_value=False), \
-         patch("vendoo_studio.routes.extension.schedule_advance_job_queue"):
+         patch("vendoo_studio.services.extension_connection.schedule_advance_job_queue"):
         asyncio.run(run_send(job.id))
     create.assert_not_called()
     env.db.expire_all()

@@ -508,7 +508,7 @@ class VendooImportRouteTest(unittest.TestCase):
         download.return_value = []
         imported = self._import().json()
         job_id = imported["job_id"]
-        with patch("vendoo_studio.routes.extension.extension_manager") as manager:
+        with patch("vendoo_studio.services.extension_connection.extension_manager") as manager:
             manager.connected = False
             response = self.client.post(f"/api/jobs/{job_id}/vendoo-item")
         self.assertEqual(response.status_code, 200, response.text)

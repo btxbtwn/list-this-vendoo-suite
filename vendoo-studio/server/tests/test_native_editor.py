@@ -71,7 +71,7 @@ class NativeEditorTest(unittest.TestCase):
 
         from vendoo_studio.services.native_field_fill import load_forms
 
-        with patch("vendoo_studio.routes.extension.extension_manager", SimpleNamespace(connected=False)):
+        with patch("vendoo_studio.services.extension_connection.extension_manager", SimpleNamespace(connected=False)):
             answer = self.client.get(f"{self.url}/poshmark/form")
             generation_forms = asyncio.run(load_forms(self.db, self.conv.id, {"poshmark"}))
         self.assertEqual(answer.status_code, 200, answer.text)
@@ -88,7 +88,7 @@ class NativeEditorTest(unittest.TestCase):
 
         snapshot = {**self.listing, "direct_category_ids": {"depop": "menswear_jeans"}}
         revision = ListingRepo(self.db).save_revision(self.conv.id, snapshot, "category_analysis")
-        with patch("vendoo_studio.routes.extension.extension_manager", SimpleNamespace(connected=False)):
+        with patch("vendoo_studio.services.extension_connection.extension_manager", SimpleNamespace(connected=False)):
             answer = self.client.get(f"{self.url}/depop/form")
             generation_forms = asyncio.run(load_forms(self.db, self.conv.id, {"depop"}))
         self.assertEqual(answer.status_code, 200, answer.text)
@@ -119,7 +119,7 @@ class NativeEditorTest(unittest.TestCase):
                 snapshot[native_contract.KEY] = native_contract.capture(snapshot, {market: form}, [market])
                 revision = ListingRepo(self.db).save_revision(self.conv.id, snapshot, "native_schema")
                 before = copy.deepcopy(revision.listing_json)
-                with patch("vendoo_studio.routes.extension.extension_manager", SimpleNamespace(connected=False)):
+                with patch("vendoo_studio.services.extension_connection.extension_manager", SimpleNamespace(connected=False)):
                     answer = self.client.get(f"{self.url}/{market}/form?revision_id={revision.id}")
                 self.assertEqual(answer.status_code, 200, answer.text)
                 result = answer.json()
@@ -204,7 +204,7 @@ class NativeEditorTest(unittest.TestCase):
         app.dependency_overrides[get_db] = lambda: self.db
         self.client = TestClient(app)
         self.url = f"/api/conversations/{self.conv.id}/native-marketplaces"
-        self.enterContext(patch("vendoo_studio.routes.extension.extension_manager", SimpleNamespace(connected=True)))
+        self.enterContext(patch("vendoo_studio.services.extension_connection.extension_manager", SimpleNamespace(connected=True)))
         self.bridge = self.enterContext(patch("vendoo_studio.services.browser_bridge.request", new_callable=AsyncMock))
         self.bridge.return_value = {"ok": True, "form": {"marketplace": "poshmark", "native": True, "known": True, "fields": []}}
         self.sellwild = self.enterContext(patch("vendoo_studio.services.sellwild_browser.account_choices", return_value={"ship_from": None, "coupons": [], "default_parcel": ""}))
@@ -243,7 +243,7 @@ class NativeEditorTest(unittest.TestCase):
         stale = self.client.get(f"{self.url}/poshmark/form?revision_id=old")
         self.assertEqual(stale.status_code, 409)
         self.bridge.assert_not_called()
-        with patch("vendoo_studio.routes.extension.extension_manager", SimpleNamespace(connected=False)):
+        with patch("vendoo_studio.services.extension_connection.extension_manager", SimpleNamespace(connected=False)):
             answer = self.client.get(f"{self.url}/mercari/form")
         self.assertEqual(answer.status_code, 200)
         self.assertTrue(answer.json()["known"])
@@ -253,7 +253,7 @@ class NativeEditorTest(unittest.TestCase):
         import asyncio
         from vendoo_studio.services.native_field_fill import load_forms
 
-        with patch("vendoo_studio.routes.extension.extension_manager", SimpleNamespace(connected=False)):
+        with patch("vendoo_studio.services.extension_connection.extension_manager", SimpleNamespace(connected=False)):
             answer = self.client.get(f"{self.url}/mercari/form")
             generation_forms = asyncio.run(load_forms(self.db, self.conv.id, {"mercari"}))
         self.assertEqual(answer.status_code, 200, answer.text)
@@ -346,7 +346,7 @@ class NativeEditorTest(unittest.TestCase):
         revision = ListingRepo(self.db).save_revision(self.conv.id, snapshot, "native_schema")
         self.sellwild.return_value = {"ship_from": "Seller address", "default_parcel": "USPS_SoftPack",
                                      "coupons": [{"id": 117, "name": "25OFF", "discountType": "percentage", "discountValue": 25}]}
-        with patch("vendoo_studio.routes.extension.extension_manager", SimpleNamespace(connected=False)):
+        with patch("vendoo_studio.services.extension_connection.extension_manager", SimpleNamespace(connected=False)):
             answer = self.client.get(f"{self.url}/sellwild/form?revision_id={revision.id}")
         fields = {row["label"]: row for row in answer.json()["fields"]}
         self.assertEqual(fields["Shipping From"]["value"], "Seller address")
@@ -393,7 +393,7 @@ class NativeEditorTest(unittest.TestCase):
         row = next(row for row in self.client.get(f"{self.url}/sellwild/form").json()["fields"] if row["label"] == "Shipping From")
         self.assertEqual((row["value"], row["help"]), ("", "Add a Shipping From address in Sellwild's Address Book."))
         self.sellwild.return_value = {"ship_from": None, "coupons": [], "default_parcel": ""}
-        with patch("vendoo_studio.routes.extension.extension_manager", SimpleNamespace(connected=False)):
+        with patch("vendoo_studio.services.extension_connection.extension_manager", SimpleNamespace(connected=False)):
             row = next(row for row in self.client.get(f"{self.url}/sellwild/form").json()["fields"] if row["label"] == "Shipping From")
         self.assertEqual(row["help"], "Sign in to Sellwild in Anteroom, then reload choices to show your address.")
 

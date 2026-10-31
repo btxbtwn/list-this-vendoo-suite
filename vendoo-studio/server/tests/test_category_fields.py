@@ -425,7 +425,7 @@ class ListingFieldsRouteTest(unittest.TestCase):
         with mock.patch.object(cf, "listing_category_ids", return_value={"depop": "77"}), \
                 mock.patch.object(cf, "load_fields", return_value=None), \
                 mock.patch.object(vendoo_create, "run_ops", fake_run_ops), \
-                mock.patch("vendoo_studio.routes.extension.ExtensionManager.connected",
+                mock.patch("vendoo_studio.services.extension_connection.ExtensionManager.connected",
                            new_callable=mock.PropertyMock, return_value=True), \
                 mock.patch("vendoo_studio.services.category_fields.save_fields",
                            side_effect=lambda *a: saved.append(("saved", a[0], a[1]))), \

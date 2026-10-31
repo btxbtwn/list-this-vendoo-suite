@@ -100,7 +100,7 @@ class SafeFetchTest(unittest.TestCase):
 
 class WebSocketOriginTest(unittest.TestCase):
     def test_rejects_loopback_lookalike_origins(self):
-        from vendoo_studio.routes.extension import _ws_origin_allowed
+        from vendoo_studio.services.extension_connection import _ws_origin_allowed
 
         self.assertTrue(_ws_origin_allowed("http://127.0.0.1:4318"))
         self.assertTrue(_ws_origin_allowed("http://127.0.0.1:5173"))
@@ -112,11 +112,11 @@ class WebSocketOriginTest(unittest.TestCase):
 
 class PairingTokenTest(unittest.TestCase):
     def test_rejects_direct_and_writes_restricted_file(self):
-        from vendoo_studio.routes.extension import ExtensionManager
+        from vendoo_studio.services.extension_connection import ExtensionManager
 
         with tempfile.TemporaryDirectory() as tmp:
             pairing = Path(tmp) / "pairing_token.txt"
-            with patch("vendoo_studio.routes.extension.PAIRING_FILE", str(pairing)):
+            with patch("vendoo_studio.services.extension_connection.PAIRING_FILE", str(pairing)):
                 manager = ExtensionManager()
                 token = manager.generate_pairing_token()
                 self.assertEqual(len(token), 32)

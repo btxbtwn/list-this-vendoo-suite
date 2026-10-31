@@ -74,7 +74,7 @@ def sync_status(db: Session = Depends(get_db)):
 @router.post("/sync")
 async def sync_categories(db: Session = Depends(get_db)):
     from vendoo_studio.repositories.queries import JobRepo
-    from vendoo_studio.routes.extension import extension_manager
+    from vendoo_studio.services.extension_connection import extension_manager
     if JobRepo(db).get_active():
         raise HTTPException(409, "Wait for the current listing job before extracting categories")
     if not extension_manager.connected:

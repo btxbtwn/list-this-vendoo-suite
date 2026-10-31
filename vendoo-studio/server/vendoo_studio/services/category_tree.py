@@ -44,7 +44,7 @@ def depop_product_types(db) -> list[str]:
 
 
 async def read_children(marketplace: str, parent_id: str = "__root") -> dict:
-    from vendoo_studio.routes.extension import extension_manager
+    from vendoo_studio.services.extension_connection import extension_manager
     request_id = "tree:" + uuid.uuid4().hex
     future = extension_manager.register_wait(request_id)
     try:
@@ -174,6 +174,6 @@ def start_sync() -> None:
 
 
 def _resume_queued_jobs(task: asyncio.Task) -> None:
-    from vendoo_studio.routes.extension import dispatch_queued_jobs
+    from vendoo_studio.services.extension_connection import dispatch_queued_jobs
     if not task.cancelled():
         asyncio.create_task(dispatch_queued_jobs())

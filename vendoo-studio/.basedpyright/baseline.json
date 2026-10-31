@@ -652,24 +652,6 @@
                 }
             }
         ],
-        "./server/vendoo_studio/routes/extension.py": [
-            {
-                "code": "reportArgumentType",
-                "range": {
-                    "startColumn": 52,
-                    "endColumn": 59,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportGeneralTypeIssues",
-                "range": {
-                    "startColumn": 10,
-                    "endColumn": 29,
-                    "lineCount": 1
-                }
-            }
-        ],
         "./server/vendoo_studio/routes/hosted_attachments.py": [
             {
                 "code": "reportArgumentType",
@@ -6772,6 +6754,24 @@
                 "range": {
                     "startColumn": 63,
                     "endColumn": 77,
+                    "lineCount": 1
+                }
+            }
+        ],
+        "./server/vendoo_studio/services/extension_connection.py": [
+            {
+                "code": "reportArgumentType",
+                "range": {
+                    "startColumn": 52,
+                    "endColumn": 59,
+                    "lineCount": 1
+                }
+            },
+            {
+                "code": "reportGeneralTypeIssues",
+                "range": {
+                    "startColumn": 10,
+                    "endColumn": 29,
                     "lineCount": 1
                 }
             }

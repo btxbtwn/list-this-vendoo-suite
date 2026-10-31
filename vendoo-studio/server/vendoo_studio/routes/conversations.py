@@ -448,7 +448,7 @@ async def cancel_conversation_jobs(db: Session, conv_id: str) -> int:
     from vendoo_studio.models.job import ACTIVE_JOB_STATUSES, Job
     from vendoo_studio.models.protocol import ProtocolMessage
     from vendoo_studio.repositories.queries import JobRepo
-    from vendoo_studio.routes.extension import dispatch_queued_jobs, extension_manager
+    from vendoo_studio.services.extension_connection import dispatch_queued_jobs, extension_manager
     from vendoo_studio.services.listing_completion import cancel_completion, completion_running
 
     jobs = [

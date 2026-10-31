@@ -78,7 +78,7 @@ def _stop_waiting_on(job_id: str) -> None:
 
     Cancels loop futures and tasks, so it runs on the event loop.
     """
-    from vendoo_studio.routes.extension import extension_manager
+    from vendoo_studio.services.extension_connection import extension_manager
     from vendoo_studio.services.listing_completion import cancel_completion
 
     extension_manager.cancel_waits_for_job(job_id)
@@ -139,7 +139,7 @@ async def sweep() -> list[str]:
     """One pass: fail what is stuck, tell the extension, start the next queued Send."""
     from vendoo_studio.database import SessionLocal
     from vendoo_studio.models.protocol import ProtocolMessage
-    from vendoo_studio.routes.extension import extension_manager
+    from vendoo_studio.services.extension_connection import extension_manager
     from vendoo_studio.services.native_marketplaces import reconcile_then_dispatch
 
     def fail_in_session() -> list[str]:
